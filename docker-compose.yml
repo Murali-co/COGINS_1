@@ -1,0 +1,163 @@
+version: '3.9'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: cognis-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-cognis_db}
+      POSTGRES_USER: ${POSTGRES_USER:-cognis}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cognis_secure_password}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8"
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cognis}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - cognis-network
+    restart: unless-stopped
+
+  # ChromaDB Vector Database
+  chroma:
+    image: ghcr.io/chroma-core/chroma:latest
+    container_name: cognis-chroma
+    environment:
+      IS_PERSISTENT: "true"
+      PERSIST_DIRECTORY: "/chroma/data"
+      ANONYMIZED_TELEMETRY: "false"
+    ports:
+      - "${CHROMA_PORT:-8004}:8000"
+    volumes:
+      - chroma_data:/chroma/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/version"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - cognis-network
+    restart: unless-stopped
+
+  # Ollama LLM Service
+  ollama:
+    image: ollama/ollama:latest
+    container_name: cognis-ollama
+    environment:
+      OLLAMA_HOST: 0.0.0.0:11434
+      OLLAMA_MODELS: /ollama/models
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434"
+    volumes:
+      - ollama_models:/ollama/models
+    # Note: GPU support requires special docker setup. 
+    # For CPU only, remove the following lines:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - cognis-network
+    restart: unless-stopped
+
+  # FastAPI Backend
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: cognis-backend
+    environment:
+      # Database
+      DATABASE_URL: postgresql://${POSTGRES_USER:-cognis}:${POSTGRES_PASSWORD:-cognis_secure_password}@postgres:5432/${POSTGRES_DB:-cognis_db}
+      
+      # ChromaDB
+      CHROMA_HOST: chroma
+      CHROMA_PORT: 8000
+      CHROMA_PATH: /chroma
+      
+      # Ollama
+      OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_MODEL: qwen2.5:7b
+      
+      # FastAPI
+      ENVIRONMENT: production
+      DEBUG: "false"
+      SECRET_KEY: ${SECRET_KEY:-your-secret-key-change-this-in-production}
+      ALGORITHM: HS256
+      ACCESS_TOKEN_EXPIRE_MINUTES: 15
+      
+      # CORS
+      CORS_ORIGINS: http://localhost:3000,http://frontend:3000
+      
+      # File uploads
+      UPLOAD_DIR: /uploads
+      MAX_UPLOAD_SIZE: 104857600  # 100MB
+      
+      # Email Service (Resend)
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      FRONTEND_URL: http://localhost:3000
+      
+      # Rate limiting
+      RATE_LIMIT_ENABLED: "true"
+      
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    volumes:
+      - ./backend/app:/app/app
+      - backend_uploads:/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      chroma:
+        condition: service_healthy
+    networks:
+      - cognis-network
+    restart: unless-stopped
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # React Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: http://localhost:8000
+    container_name: cognis-frontend
+    environment:
+      VITE_API_URL: http://localhost:8000
+      NODE_ENV: production
+    ports:
+      - "${FRONTEND_PORT:-3000}:80"
+    depends_on:
+      - backend
+    networks:
+      - cognis-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
+  chroma_data:
+    driver: local
+  ollama_models:
+    driver: local
+  backend_uploads:
+    driver: local
+
+networks:
+  cognis-network:
+    driver: bridge
