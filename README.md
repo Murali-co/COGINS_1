@@ -21,6 +21,16 @@ COGNIS is a production-ready, local-first AI career development assistant. It op
 | :---: |
 | ![AI Interview Coach](docs/images/interview_coach.png) |
 
+### Orchestration & Pipeline Management
+| Orchestration Engine | Saved Job Pipelines |
+| :---: | :---: |
+| ![Orchestration](docs/images/orchestration_engine.png) | ![Saved Pipelines](docs/images/pipeline_builder.png) |
+
+### Security & Audit Dashboard
+| Security & Audit Logs |
+| :---: |
+| ![Security Dashboard](docs/images/security_audit.png) |
+
 ---
 
 ## 🚀 Key Features
