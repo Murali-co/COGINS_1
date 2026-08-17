@@ -1,7 +1,6 @@
 import io
 import fitz  # PyMuPDF
 import docx  # python-docx
-from pdfminer.high_level import extract_text as extract_pdfminer_text
 
 class ResumeParser:
     @staticmethod
@@ -14,18 +13,21 @@ class ResumeParser:
                 text += page.get_text()
             doc.close()
         except Exception as e:
-            # Fallback to pdfminer
+            # Fallback to pdfminer if available
             print(f"PyMuPDF failed, falling back to pdfminer: {e}")
             text = ""
 
         if not text.strip():
             try:
-                # pdfminer extraction
+                from pdfminer.high_level import extract_text as extract_pdfminer_text
+
                 fp = io.BytesIO(file_bytes)
                 text = extract_pdfminer_text(fp)
+            except ModuleNotFoundError:
+                print("pdfminer is not installed; PDF fallback extraction is unavailable.")
             except Exception as e:
                 print(f"pdfminer fallback failed: {e}")
-                
+
         return text
 
     @staticmethod

@@ -105,26 +105,43 @@ export const CareerCopilot = () => {
       });
 
       if (!response.ok) {
-        throw new Error('Server error');
+        let msg = 'Server error';
+        try {
+          const body = await response.json();
+          msg = body.detail || JSON.stringify(body);
+        } catch {
+          const text = await response.text();
+          if (text) msg = text;
+        }
+        throw new Error(msg);
       }
 
       // Add skeleton assistant message
       setMessages(prev => [...prev, { role: 'assistant', content: '', classified_as: 'loading', isStreaming: true }]);
 
-      const reader = response.body.getReader();
+      const reader = response.body?.getReader();
+      if (!reader) {
+        throw new Error('Streaming not supported by this browser.');
+      }
+
       const decoder = new TextDecoder();
       let done = false;
+      let buffer = '';
 
       while (!done) {
         const { value, done: readerDone } = await reader.read();
         done = readerDone;
         if (value) {
-          const chunk = decoder.decode(value, { stream: !done });
-          const lines = chunk.split('\n');
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
           for (const line of lines) {
-            if (line.startsWith('data: ')) {
+            const trimmed = line.trim();
+            if (!trimmed) continue;
+            if (trimmed.startsWith('data: ')) {
               try {
-                const data = JSON.parse(line.slice(6));
+                const data = JSON.parse(trimmed.slice(6));
                 if (data.token) {
                   setMessages(prev => {
                     const lastIdx = prev.length - 1;
@@ -143,10 +160,21 @@ export const CareerCopilot = () => {
                   toast.error(`Error: ${data.error}`);
                 }
               } catch (e) {
-                // Ignore chunk parse issues
+                console.warn('Copilot stream parse failed:', e);
               }
             }
           }
+        }
+      }
+
+      if (buffer.trim().startsWith('data: ')) {
+        try {
+          const data = JSON.parse(buffer.trim().slice(6));
+          if (data.error) {
+            toast.error(`Error: ${data.error}`);
+          }
+        } catch {
+          // ignore leftover parse failures
         }
       }
 

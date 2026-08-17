@@ -2,6 +2,7 @@ import pytest
 from unittest.mock import patch, AsyncMock
 from app.copilot.router import classify_query
 from app.rag.memory import ChatMemory
+from app.auth.models import DBManager
 
 def test_query_classification():
     # 1. Job keywords
@@ -32,6 +33,8 @@ def test_copilot_chat_endpoint(mock_query, mock_get_profile, mock_generate, clie
         "password": "password123",
         "full_name": "Copilot Tester"
     })
+    user = DBManager.get_user_by_email("copilot_tester@test.com")
+    DBManager.verify_email(user["id"])
     login_res = client.post("/auth/login", json={
         "email": "copilot_tester@test.com",
         "password": "password123"

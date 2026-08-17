@@ -52,6 +52,16 @@ class ApplicationHistory(Base):
     notes = Column(Text, nullable=False)
     location = Column(String, nullable=True)
     job_url = Column(String, nullable=True)
+    resume_version_id = Column(Integer, nullable=True)
+    tone = Column(String, nullable=True)
+
+
+class ApplicationStatusHistory(Base):
+    __tablename__ = "application_status_history"
+    id = Column(Integer, primary_key=True, index=True)
+    application_id = Column(String, ForeignKey("applications_history.id"), nullable=False, index=True)
+    status = Column(String, nullable=False)
+    changed_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
 class UserCriteria(Base):
@@ -80,6 +90,7 @@ class InterviewSession(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     job_id = Column(String, nullable=True)
     target_role = Column(String, nullable=True)
+    interview_mode = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     is_finished = Column(Boolean, default=False)
     chat_history = Column(Text, nullable=False)
@@ -118,6 +129,17 @@ class SavedJob(Base):
     job_url = Column(String, nullable=True)
     saved_at = Column(DateTime(timezone=True), server_default=func.now())
     notes = Column(Text, nullable=True)
+    stage = Column(String, nullable=True, default="saved")
+
+
+class PushToken(Base):
+    __tablename__ = "push_tokens"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    token = Column(String, nullable=False, unique=True)
+    device_type = Column(String, nullable=True, default="web")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
 class JobApplication(Base):
@@ -143,3 +165,27 @@ class Feedback(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     feedback_text = Column(Text, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class RefreshToken(Base):
+    __tablename__ = "refresh_tokens"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    token_hash = Column(String(64), nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    revoked_at = Column(DateTime(timezone=True), nullable=True)
+    user_agent = Column(String, nullable=True)
+    ip_address = Column(String, nullable=True)
+
+
+class AuthAuditLog(Base):
+    __tablename__ = "auth_audit_log"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    event_type = Column(String(50), nullable=False)
+    ip_address = Column(String, nullable=True)
+    user_agent = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    detail = Column(Text, nullable=True)
+

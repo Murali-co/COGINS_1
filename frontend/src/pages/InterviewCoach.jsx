@@ -14,6 +14,7 @@ export const InterviewCoach = () => {
   const [focusType, setFocusType] = useState('general'); // general | role | job
   const [targetRole, setTargetRole] = useState('');
   const [selectedJobId, setSelectedJobId] = useState('');
+  const [interviewMode, setInterviewMode] = useState('Technical');
 
   // Active Session
   const [session, setSession] = useState(null); // { session_id, question, question_index }
@@ -34,6 +35,7 @@ export const InterviewCoach = () => {
       } else if (focusType === 'role' && targetRole) {
         payload.target_role = targetRole;
       }
+      payload.interview_mode = interviewMode;
 
       const res = await apiClient.post('/interview/start', payload);
       setSession(res.data);
@@ -188,6 +190,20 @@ export const InterviewCoach = () => {
                 Simulated role interview for an active indexed job description from your board.
               </p>
             </div>
+          </div>
+
+          <div className="space-y-2 text-xs">
+            <label className="font-bold text-dark-300">Interview Style</label>
+            <select
+              value={interviewMode}
+              onChange={(e) => setInterviewMode(e.target.value)}
+              className="w-full px-3 py-2 bg-dark-900 border border-dark-800 focus:border-indigo-500/40 rounded-xl outline-none text-dark-200"
+            >
+              <option value="Technical">Technical</option>
+              <option value="Behavioural">Behavioural</option>
+              <option value="HR Screening">HR Screening</option>
+              <option value="Case Study">Case Study</option>
+            </select>
           </div>
 
           {/* Conditional Input Fields */}

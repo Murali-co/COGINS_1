@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate, Link } from 'react-router-dom';
 import { useJobs } from '../hooks/useJobs';
 import CoverLetterEditor from '../components/CoverLetterEditor';
+import apiClient from '../api/client';
 import toast from 'react-hot-toast';
 
 export const ApplyAssistant = () => {
@@ -13,6 +14,38 @@ export const ApplyAssistant = () => {
   const [coverLetter, setCoverLetter] = useState(data?.package?.cover_letter || '');
   const [resumeBullets, setResumeBullets] = useState(data?.package?.resume_bullets || []);
   const [notes, setNotes] = useState('');
+  const [tone, setTone] = useState('formal');
+  const [versions, setVersions] = useState([]);
+  const [selectedVersion, setSelectedVersion] = useState('');
+  const [atsScore, setAtsScore] = useState(null);
+  const [isGeneratingCoverLetter, setIsGeneratingCoverLetter] = useState(false);
+
+  useEffect(() => {
+    const fetchVersions = async () => {
+      try {
+        const res = await apiClient.get('/resume/versions');
+        setVersions(res.data || []);
+      } catch (err) {
+        console.error(err);
+      }
+    };
+    fetchVersions();
+  }, []);
+
+  useEffect(() => {
+    const scoreResume = async () => {
+      if (!job?.description) return;
+      try {
+        const res = await apiClient.post('/resume/ats/score', {
+          job_description: job.description,
+        });
+        setAtsScore(res.data);
+      } catch (err) {
+        console.error(err);
+      }
+    };
+    scoreResume();
+  }, [job]);
 
   if (!data || !data.job || !data.package) {
     return (
@@ -33,6 +66,34 @@ export const ApplyAssistant = () => {
   }
 
   const { job, package: pkg } = data;
+
+  const handleToneCoverLetter = async () => {
+    setIsGeneratingCoverLetter(true);
+    const loadingToast = toast.loading(`Generating ${tone} cover letter...`);
+    try {
+      const res = await apiClient.post('/resume/cover-letter', {
+        target_role: job.title,
+        company_name: job.company,
+        tone,
+      });
+      setCoverLetter(res.data.cover_letter);
+      toast.success('Cover letter refreshed.', { id: loadingToast });
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Unable to regenerate cover letter.', { id: loadingToast });
+    } finally {
+      setIsGeneratingCoverLetter(false);
+    }
+  };
+
+  const handleSelectVersion = async (versionId) => {
+    try {
+      await apiClient.post(`/resume/select-version?version_id=${versionId}`);
+      setSelectedVersion(versionId);
+      toast.success('Resume version selected for this application.');
+    } catch (err) {
+      toast.error('Unable to switch resume version.');
+    }
+  };
 
   const handleSaveBullet = (idx, text) => {
     const updated = [...resumeBullets];
@@ -61,7 +122,9 @@ export const ApplyAssistant = () => {
         job_url: job.job_url,
         cover_letter: coverLetter,
         resume_bullets: resumeBullets,
-        notes: notes || 'Applied via COGNIS'
+        notes: notes || 'Applied via COGNIS',
+        tone,
+        resume_version_id: selectedVersion || undefined,
       });
       toast.success('Application logged successfully!', { id: loadingToast });
       navigate('/applications');
@@ -98,6 +161,52 @@ export const ApplyAssistant = () => {
             <div className="p-3 bg-dark-950/50 rounded-xl border border-dark-800 text-xs font-semibold text-dark-100 break-words select-all">
               {pkg.suggested_subject_line}
             </div>
+          </div>
+
+          {/* ATS Score */}
+          {atsScore && (
+            <div className="glass-panel border rounded-2xl p-5 space-y-3">
+              <h4 className="text-xs font-bold text-amber-400 uppercase tracking-wider">ATS Compatibility</h4>
+              <div className="text-3xl font-black text-dark-50">{atsScore.overall_score}%</div>
+              <p className="text-[11px] text-dark-400 leading-relaxed">{atsScore.recommendation}</p>
+              <div className="text-[10px] text-dark-500">{atsScore.suggestions}</div>
+            </div>
+          )}
+
+          {/* Resume Version Selector */}
+          <div className="glass-panel border rounded-2xl p-5 space-y-3">
+            <h4 className="text-xs font-bold text-cyan-400 uppercase tracking-wider">Resume Version</h4>
+            <select
+              value={selectedVersion}
+              onChange={(e) => handleSelectVersion(e.target.value)}
+              className="w-full px-3 py-2 bg-dark-950 border border-dark-800 rounded-xl text-xs text-dark-100"
+            >
+              <option value="">Use latest uploaded resume</option>
+              {versions.map((version) => (
+                <option key={version.id} value={version.id}>{version.version_label}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Tone Selector */}
+          <div className="glass-panel border rounded-2xl p-5 space-y-3">
+            <h4 className="text-xs font-bold text-fuchsia-400 uppercase tracking-wider">Cover Letter Tone</h4>
+            <select
+              value={tone}
+              onChange={(e) => setTone(e.target.value)}
+              className="w-full px-3 py-2 bg-dark-950 border border-dark-800 rounded-xl text-xs text-dark-100"
+            >
+              <option value="formal">Formal</option>
+              <option value="conversational">Conversational</option>
+              <option value="enthusiastic">Enthusiastic</option>
+            </select>
+            <button
+              onClick={handleToneCoverLetter}
+              disabled={isGeneratingCoverLetter}
+              className="w-full py-2 bg-fuchsia-600 hover:bg-fuchsia-500 text-white font-bold rounded-xl text-xs transition-all"
+            >
+              {isGeneratingCoverLetter ? 'Generating...' : 'Refresh Cover Letter'}
+            </button>
           </div>
 
           {/* Tailored Bullets */}

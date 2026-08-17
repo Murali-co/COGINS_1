@@ -24,6 +24,7 @@ from app.profile.router import router as profile_router
 from app.llm.router import router as llm_router
 from app.feedback.router import router as feedback_router
 from app.analytics.router import router as analytics_router
+from app.orchestrator.router import router as orchestrator_router
 from app.jobs.scheduler import start_scheduler, shutdown_scheduler
 
 # Optional: RateLimit handling (only if slowapi is installed)
@@ -83,6 +84,54 @@ if LIMITER_AVAILABLE and limiter:
     if SLOWAPI_AVAILABLE and RateLimitExceeded and _rate_limit_exceeded_handler:
         app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+import hmac
+
+EXEMPT_CSRF_PATHS = {
+    "/auth/login", "/auth/register", "/auth/refresh",
+    "/auth/forgot-password", "/auth/reset-password", "/auth/resend-verification",
+    "/health", "/", "/docs", "/openapi.json", "/redoc"
+}
+
+@app.middleware("http")
+async def security_middleware(request: Request, call_next):
+    # 1. Double-submit CSRF Protection for state-changing HTTP methods
+    if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
+        path = request.url.path.rstrip("/") or "/"
+        if path not in EXEMPT_CSRF_PATHS and not any(path.startswith(p) for p in ["/docs", "/openapi.json"]):
+            csrf_cookie = request.cookies.get("csrf_token")
+            # Enforce CSRF check if csrf_token cookie is present on state-changing requests
+            if csrf_cookie:
+                csrf_header = request.headers.get("x-csrf-token") or request.headers.get("X-CSRF-Token")
+                if not csrf_header or not hmac.compare_digest(csrf_cookie, csrf_header):
+                    return JSONResponse(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        content={"detail": "CSRF token validation failed"}
+                    )
+
+    response = await call_next(request)
+
+    # 2. Security Headers
+    if settings.ENVIRONMENT == "production":
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    
+    ollama_origin = settings.OLLAMA_BASE_URL.rstrip("/")
+    frontend_origin = settings.FRONTEND_URL.rstrip("/")
+    csp_policy = (
+        f"default-src 'self'; "
+        f"connect-src 'self' {ollama_origin} {frontend_origin}; "
+        f"img-src 'self' data:; "
+        f"script-src 'self' 'unsafe-inline'; "
+        f"style-src 'self' 'unsafe-inline'"
+    )
+    response.headers["Content-Security-Policy"] = csp_policy
+
+    return response
+
+
 # CORS Middleware Setup
 origins = [org.strip() for org in settings.CORS_ORIGINS.split(",") if org.strip()]
 
@@ -110,6 +159,7 @@ app.include_router(profile_router)
 app.include_router(llm_router)
 app.include_router(feedback_router)
 app.include_router(analytics_router)
+app.include_router(orchestrator_router)
 
 # Secure Global Exception Handler to prevent stack trace leakage to client
 @app.exception_handler(Exception)
@@ -165,14 +215,19 @@ async def detailed_health_check():
     # 3. Check Ollama
     ollama_status = "healthy"
     try:
+        print(f"[HealthCheck] Testing Ollama connection to URL: {settings.OLLAMA_BASE_URL.rstrip('/')}/api/tags")
         async with httpx.AsyncClient(timeout=3.0) as client:
             url = f"{settings.OLLAMA_BASE_URL.rstrip('/')}/api/tags"
             response = await client.get(url)
             # Ollama tags returns 200 with model list
             if response.status_code not in [200, 204, 404]:
                 ollama_status = f"unhealthy: status code {response.status_code}"
+                print(f"[HealthCheck] Ollama returned non-success code: {response.status_code}")
     except Exception as e:
-        ollama_status = f"unhealthy: {str(e)}"
+        import traceback
+        print("[HealthCheck] Ollama check failed with exception:")
+        traceback.print_exc()
+        ollama_status = f"unhealthy: {type(e).__name__}: {str(e)}"
         
     overall_status = "healthy"
     if "unhealthy" in sqlite_status or "unhealthy" in chroma_status or "unhealthy" in ollama_status:
@@ -198,7 +253,7 @@ if os.environ.get("SERVE_STATIC_FRONTEND") == "true" or os.path.exists("static")
         if any(catchall.startswith(prefix) for prefix in [
             "auth/", "resume/", "jobs/", "apply/", "rag/", "copilot/", 
             "interview/", "market/", "notifications/", "settings/", 
-            "profile/", "llm/", "feedback/", "analytics/", "health"
+            "profile/", "llm/", "feedback/", "analytics/", "orchestrator/", "health"
         ]):
             return JSONResponse(status_code=status.HTTP_404_NOT_FOUND, content={"detail": "Not Found"})
             

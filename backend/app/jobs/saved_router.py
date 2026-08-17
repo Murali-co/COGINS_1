@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from typing import List
+from typing import List, Optional
 from app.db.models import SavedJob
 from app.db.session import SessionLocal
 from app.auth.utils import get_current_user
@@ -15,6 +15,7 @@ class SaveJobRequest(BaseModel):
     location: str = None
     job_url: str = None
     notes: str = None
+    stage: str = "saved"
 
 class SavedJobResponse(BaseModel):
     id: int
@@ -24,6 +25,7 @@ class SavedJobResponse(BaseModel):
     location: str = None
     job_url: str = None
     notes: str = None
+    stage: str = "saved"
     saved_at: datetime
 
     class Config:
@@ -57,7 +59,8 @@ async def save_job(
             company=req.company,
             location=req.location,
             job_url=req.job_url,
-            notes=req.notes
+            notes=req.notes,
+            stage=req.stage or "saved"
         )
         db.add(saved_job)
         db.commit()
@@ -102,6 +105,27 @@ async def remove_saved_job(
         db.delete(saved_job)
         db.commit()
         return {"message": "Saved job removed"}
+    finally:
+        db.close()
+
+@router.patch("/{saved_job_id}/stage")
+async def update_saved_job_stage(
+    saved_job_id: int,
+    stage: str,
+    current_user: dict = Depends(get_current_user)
+):
+    db = SessionLocal()
+    try:
+        saved_job = db.query(SavedJob).filter(
+            SavedJob.id == saved_job_id,
+            SavedJob.user_id == current_user["id"]
+        ).first()
+        if not saved_job:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Saved job not found")
+        saved_job.stage = stage
+        db.commit()
+        db.refresh(saved_job)
+        return saved_job
     finally:
         db.close()
 

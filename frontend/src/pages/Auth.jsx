@@ -19,6 +19,7 @@ export const Auth = () => {
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [resetToken, setResetToken] = useState('');
+  const [verificationLink, setVerificationLink] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -29,6 +30,10 @@ export const Auth = () => {
       setAuthMode('login');
     }
   }, [searchParams]);
+
+  useEffect(() => {
+    setVerificationLink('');
+  }, [authMode]);
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -75,6 +80,9 @@ export const Auth = () => {
       try {
         const res = await register(email, password, fullName);
         toast.success(res?.message || 'Registration successful! Please check your email to verify.');
+        if (res?.verification_link) {
+          setVerificationLink(res.verification_link);
+        }
         setAuthMode('login');
         setPassword('');
       } catch (err) {
@@ -241,7 +249,23 @@ export const Auth = () => {
           </button>
         </form>
 
-        {/* Toggle Mode */}
+        {verificationLink && authMode === 'login' && (
+          <div className="mt-4 rounded-xl border border-yellow-500/30 bg-yellow-500/5 p-4 text-sm text-yellow-200">
+            <p className="font-semibold">Dev verification link:</p>
+            <a
+              href={verificationLink}
+              target="_blank"
+              rel="noreferrer"
+              className="break-all text-yellow-100 underline"
+            >
+              {verificationLink}
+            </a>
+            <p className="mt-2 text-xs text-yellow-200/80">
+              Use this link to verify your email when SMTP is not configured.
+            </p>
+          </div>
+        )}
+
         <div className="text-center text-xs text-dark-400 pt-2 flex flex-col space-y-2">
           {authMode === 'login' && (
             <div>

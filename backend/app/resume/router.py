@@ -10,6 +10,7 @@ from app.llm.skill_gap import SkillGapAnalyzer
 from app.llm.cover_letter import CoverLetterGenerator
 from app.llm.ollama_client import OllamaClient
 from app.models.schemas import SkillGapRequest, CoverLetterRequest, CoverLetterResponse, ResumeTailorRequest, ResumeTailorResponse
+from app.db.models import ResumeVersion
 from app.utils.bg_jobs import create_job, update_job, get_job
 from app.jobs.matcher import JobMatcher
 from app.llm.resume_tailor import ResumeTailorEngine
@@ -224,7 +225,7 @@ async def generate_cover_letter_tone(
         resume_text=profile["resume_text"],
         target_role=req_body.target_role,
         company_name=req_body.company_name,
-        tone=req_body.tone
+        tone=req_body.tone or "formal"
     )
     text = text.replace("[Your Name]", current_user["full_name"])
     text = text.replace("[Candidate Name]", current_user["full_name"])
@@ -259,6 +260,21 @@ async def tailor_resume(
     # 3. Call LLM Tailoring Engine
     tailored_result = await ResumeTailorEngine.tailor(profile["resume_text"], job_desc)
     return tailored_result
+
+@router.post("/select-version")
+async def select_resume_version(
+    version_id: int,
+    current_user: dict = Depends(get_current_user)
+):
+    version = DBManager.get_resume_version_by_id(version_id)
+    if not version or version["user_id"] != current_user["id"]:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Resume version not found")
+
+    profile = ProfileStore.get_profile(current_user["id"])
+    if profile is None:
+        profile = {}
+    ProfileStore.store_profile(user_id=current_user["id"], resume_text=version["resume_text"], skills=profile.get("skills", []))
+    return {"message": "Resume version selected", "version_id": version_id}
 
 class ProfileEditRequest(BaseModel):
     skills: List[str]

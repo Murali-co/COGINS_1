@@ -9,6 +9,8 @@ os.environ["SECRET_KEY"] = "test-secret-key-test-secret-key-test-secret-key"
 os.environ["DATABASE_URL"] = "sqlite:///./test_data/users.db"
 os.environ["CHROMA_PATH"] = "./test_data/chroma_db"
 os.environ["UPLOAD_DIR"] = "./test_uploads"
+os.environ["TESTING"] = "true"
+os.environ["ENVIRONMENT"] = "testing"
 
 # Direct monkeypatch of embedding functions to ensure consistent behavior across all modules
 def mock_embed_text(text: str):
@@ -48,7 +50,9 @@ chromadb.utils.embedding_functions.ONNXMiniLM_L6_V2 = MockONNXMiniLM
 # Mock OllamaClient to prevent calling localhost/external LLM during tests
 from app.llm.ollama_client import OllamaClient
 async def mock_generate(cls, prompt: str, system=None, format=None) -> str:
-    prompt_lower = prompt.lower()
+    prompt_lower = (prompt + " " + (system or "")).lower()
+    if "agent orchestrator" in prompt_lower or "approved capabilities" in prompt_lower:
+        return '{"tasks": [{"task_id": "task_1", "task_type": "analyze_resume", "description": "Analyze resume", "input": {}, "dependencies": []}]}'
     if "tailored_bullets" in prompt_lower:
         return '{"tailored_bullets": ["mocked bullet 1", "mocked bullet 2"]}'
     elif "tailored_resume" in prompt_lower:
@@ -89,7 +93,7 @@ def clean_test_dirs():
     db = SessionLocal()
     try:
         for model in [
-            'notifications', 'resume_versions', 'interview_sessions',
+            'workflow_tasks', 'workflows', 'notifications', 'resume_versions', 'interview_sessions',
             'chat_messages', 'user_criteria', 'applications_history', 'users',
             'feedbacks'
         ]:

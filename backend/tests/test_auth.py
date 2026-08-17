@@ -1,3 +1,5 @@
+from app.auth.models import DBManager
+
 def test_register_user(client):
     response = client.post("/auth/register", json={
         "email": "tester@test.com",
@@ -6,8 +8,8 @@ def test_register_user(client):
     })
     assert response.status_code == 200
     data = response.json()
-    assert "access_token" in data
-    assert data["token_type"] == "bearer"
+    assert "access_token" not in data
+    assert "message" in data
 
 def test_register_duplicate_user(client):
     # Register first
@@ -33,6 +35,8 @@ def test_login_user(client):
         "password": "password123",
         "full_name": "Test User"
     })
+    user = DBManager.get_user_by_email("tester3@test.com")
+    DBManager.verify_email(user["id"])
     
     # Login
     response = client.post("/auth/login", json={
@@ -45,12 +49,15 @@ def test_login_user(client):
 
 def test_get_current_user_profile(client):
     # Register
-    reg_response = client.post("/auth/register", json={
+    client.post("/auth/register", json={
         "email": "tester4@test.com",
         "password": "password123",
         "full_name": "Test User"
     })
-    token = reg_response.json()["access_token"]
+    user = DBManager.get_user_by_email("tester4@test.com")
+    DBManager.verify_email(user["id"])
+    login_res = client.post("/auth/login", json={"email": "tester4@test.com", "password": "password123"})
+    token = login_res.json()["access_token"]
     
     # Access profile
     response = client.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
@@ -58,3 +65,4 @@ def test_get_current_user_profile(client):
     data = response.json()
     assert data["email"] == "tester4@test.com"
     assert data["full_name"] == "Test User"
+

@@ -38,6 +38,19 @@ def generate_reset_password_token() -> str:
     """Generate a secure password reset token"""
     return secrets.token_urlsafe(32)
 
+def generate_refresh_token() -> str:
+    """Generate a long-lived opaque refresh token"""
+    return secrets.token_urlsafe(48)
+
+def hash_refresh_token(token: str) -> str:
+    """Compute SHA-256 hash of a refresh token"""
+    import hashlib
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+def generate_csrf_token() -> str:
+    """Generate a secure CSRF token"""
+    return secrets.token_urlsafe(32)
+
 oauth2_scheme_opt = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error=False)
 
 async def get_current_user(

@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from app.auth.utils import get_current_user
 from app.auth.models import DBManager
 from app.llm.multi_model import MultiModelManager
@@ -10,6 +10,7 @@ from app.config import settings
 router = APIRouter(prefix="/llm", tags=["llm"])
 
 class ModelSelectionRequest(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
     model_name: str
 
 class ModelInfo(BaseModel):

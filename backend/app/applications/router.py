@@ -6,6 +6,8 @@ from typing import Dict, Any, List
 from app.auth.utils import get_current_user
 from app.auth.models import DBManager
 from app.models.schemas import ApplicationSubmitRequest, ApplicationHistoryOut, ApplicationPackageResponse
+from app.db.session import SessionLocal
+from app.db.models import ApplicationStatusHistory
 from app.applications.generator import ApplicationGenerator
 from app.jobs.matcher import JobMatcher
 from app.utils.bg_jobs import create_job, update_job
@@ -114,7 +116,9 @@ async def record_submission(
         resume_bullets=resume_bullets,
         notes=request.notes or "",
         location=location,
-        job_url=job_url
+        job_url=job_url,
+        resume_version_id=request.resume_version_id,
+        tone=request.tone,
     )
     
     return {"message": "Application logged successfully.", "application_id": app_id}
@@ -146,7 +150,10 @@ async def get_history(current_user: dict = Depends(get_current_user)):
                 resume_bullets=bullets,
                 notes=item["notes"],
                 location=item.get("location"),
-                job_url=item.get("job_url")
+                job_url=item.get("job_url"),
+                resume_version_id=item.get("resume_version_id"),
+                tone=item.get("tone"),
+                status_history=DBManager.get_application_status_history(item["id"])
             )
         )
     return formatted
@@ -248,6 +255,16 @@ async def export_application_pdf(
             detail=f"PDF export failed: {str(e)}"
         )
 
+@router.get("/{application_id}/status-history")
+async def get_application_status_history(
+    application_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    application = DBManager.get_application(application_id, current_user["id"])
+    if not application:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Application not found")
+    return DBManager.get_application_status_history(application_id)
+
 @router.patch("/{application_id}/status")
 async def update_application_status(
     application_id: str,
@@ -276,7 +293,7 @@ async def update_application_status(
     try:
         # Update status in database
         DBManager.update_application_status(application_id, new_status)
-        
+
         return {
             "message": "Application status updated",
             "application_id": application_id,

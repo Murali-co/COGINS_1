@@ -16,6 +16,7 @@ router = APIRouter(prefix="/interview", tags=["interview"])
 class StartRequest(BaseModel):
     job_id: Optional[str] = None
     target_role: Optional[str] = None
+    interview_mode: Optional[str] = None
 
 class AnswerRequest(BaseModel):
     session_id: str
@@ -89,7 +90,8 @@ async def start_interview(
         user_id=user_id,
         job_id=req.job_id,
         target_role=req.target_role,
-        chat_history=json.dumps(initial_history)
+        chat_history=json.dumps(initial_history),
+        interview_mode=req.interview_mode,
     )
     
     return {

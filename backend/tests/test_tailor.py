@@ -1,6 +1,7 @@
 import pytest
 from app.vector_db.profile_store import ProfileStore
 from app.jobs.matcher import JobMatcher
+from app.auth.models import DBManager
 
 def test_resume_tailoring_flow(client):
     # 1. Register & Login
@@ -9,6 +10,8 @@ def test_resume_tailoring_flow(client):
         "password": "password123",
         "full_name": "Tailor Tester"
     })
+    user = DBManager.get_user_by_email("tailor_tester@test.com")
+    DBManager.verify_email(user["id"])
     login_res = client.post("/auth/login", json={
         "email": "tailor_tester@test.com",
         "password": "password123"

@@ -101,6 +101,7 @@ class GeminiClient:
 
 class OllamaClient:
     TIMEOUT = 120.0
+    MAX_RETRIES = 3
 
     @classmethod
     def get_base_url(cls) -> str:
@@ -111,7 +112,10 @@ class OllamaClient:
         return settings.OLLAMA_MODEL
 
     @classmethod
-    async def _request_with_retry(cls, method: str, path: str, payload: Dict[str, Any], retries: int = 3) -> httpx.Response:
+    async def _request_with_retry(cls, method: str, path: str, payload: Dict[str, Any], retries: int = None) -> httpx.Response:
+        if retries is None:
+            retries = cls.MAX_RETRIES
+
         url = f"{cls.get_base_url().rstrip('/')}{path}"
         backoff = 1.0
         
@@ -124,9 +128,26 @@ class OllamaClient:
                         response = await client.get(url)
                     response.raise_for_status()
                     return response
+                except httpx.HTTPStatusError as e:
+                    detail = ""
+                    if e.response is not None:
+                        try:
+                            detail = e.response.text
+                        except Exception:
+                            detail = ""
+                    if e.response is not None and e.response.status_code in {400, 404}:
+                        raise RuntimeError(
+                            f"Ollama rejected the request for model '{cls.get_model()}': {e}. "
+                            f"Make sure the model is available and pulled with 'ollama pull {cls.get_model()}'."
+                        ) from e
+                    if attempt == retries - 1:
+                        raise RuntimeError(f"Ollama API request failed after {retries} attempts: {e}") from e
+                    print(f"Ollama connection attempt {attempt+1} failed. Retrying in {backoff}s...")
+                    await asyncio.sleep(backoff)
+                    backoff *= 2.0
                 except (httpx.HTTPError, httpx.NetworkError) as e:
                     if attempt == retries - 1:
-                        raise RuntimeError(f"Ollama API request failed after {retries} attempts: {e}")
+                        raise RuntimeError(f"Ollama API request failed after {retries} attempts: {e}") from e
                     print(f"Ollama connection attempt {attempt+1} failed. Retrying in {backoff}s...")
                     await asyncio.sleep(backoff)
                     backoff *= 2.0
@@ -180,7 +201,7 @@ class OllamaClient:
             payload["format"] = format
 
         backoff = 1.0
-        retries = 3
+        retries = cls.MAX_RETRIES
         
         # Try to connect, support simple streaming
         for attempt in range(retries):
@@ -200,9 +221,20 @@ class OllamaClient:
                             except json.JSONDecodeError:
                                 continue
                 return # Successfully completed stream
+            except httpx.HTTPStatusError as e:
+                if e.response is not None and e.response.status_code in {400, 404}:
+                    raise RuntimeError(
+                        f"Ollama rejected the streaming request for model '{cls.get_model()}': {e}. "
+                        f"Make sure the model is available and pulled with 'ollama pull {cls.get_model()}'."
+                    ) from e
+                if attempt == retries - 1:
+                    raise RuntimeError(f"Ollama streaming connection failed: {e}") from e
+                print(f"Ollama stream attempt {attempt+1} failed. Retrying in {backoff}s...")
+                await asyncio.sleep(backoff)
+                backoff *= 2.0
             except (httpx.HTTPError, httpx.NetworkError) as e:
                 if attempt == retries - 1:
-                    raise RuntimeError(f"Ollama streaming connection failed: {e}")
+                    raise RuntimeError(f"Ollama streaming connection failed: {e}") from e
                 print(f"Ollama stream attempt {attempt+1} failed. Retrying in {backoff}s...")
                 await asyncio.sleep(backoff)
                 backoff *= 2.0

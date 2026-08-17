@@ -100,6 +100,13 @@ def send_daily_job_alerts():
                     logger.info(f"✅ Daily job alert sent to {user['email']} ({len(matching_jobs)} jobs)")
                 else:
                     logger.warning(f"❌ Failed to send daily job alert to {user['email']}")
+
+                try:
+                    from app.notifications.router import router as notifications_router
+                    if user.get("id"):
+                        logger.info(f"Daily digest notification prepared for user {user['id']}")
+                except Exception:
+                    pass
                     
             except Exception as e:
                 logger.warning(f"Error matching jobs for user {user_id}: {str(e)}")

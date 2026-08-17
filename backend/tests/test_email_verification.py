@@ -51,7 +51,9 @@ def verified_user_token(verified_user):
         "email": verified_user["email"],
         "password": verified_user["password"]
     })
-    return response.json()["access_token"]
+    token = response.json()["access_token"]
+    client.cookies.clear()
+    return token
 
 
 # Test Email Verification Flow
@@ -123,20 +125,20 @@ class TestEmailVerification:
         })
         
         assert response.status_code == 200
-        assert "sent successfully" in response.json()["message"].lower()
+        assert "if that account exists" in response.json()["message"].lower()
         
-        # Verify new token was generated
+        # Verify new token was generated for unverified user
         user = DBManager.get_user_by_email(test_user["email"])
         assert user["verification_token"] is not None
     
     def test_resend_verification_for_already_verified_user(self, verified_user):
-        """Test resending verification for already verified user"""
+        """Test resending verification for already verified user returns uniform generic message"""
         response = client.post("/auth/resend-verification", json={
             "email": verified_user["email"]
         })
         
-        assert response.status_code == 400
-        assert "already verified" in response.json()["detail"].lower()
+        assert response.status_code == 200
+        assert "if that account exists" in response.json()["message"].lower()
     
     def test_login_requires_verified_email(self, test_user):
         """Test that login requires verified email"""

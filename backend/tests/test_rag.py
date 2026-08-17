@@ -62,6 +62,8 @@ def test_rag_chat_endpoint(mock_query, mock_get_profile, mock_generate, client):
         "password": "password123",
         "full_name": "RAG Tester"
     })
+    user = DBManager.get_user_by_email("rag_tester@test.com")
+    DBManager.verify_email(user["id"])
     
     login_res = client.post("/auth/login", json={
         "email": "rag_tester@test.com",

@@ -4,6 +4,7 @@ import { useProfile } from '../hooks/useProfile';
 import { useJobs } from '../hooks/useJobs';
 import { LoadingSpinner } from '../components/LoadingSpinner';
 import MarketInsights from '../components/MarketInsights';
+import SavedJobsPipeline from '../components/SavedJobsPipeline';
 import apiClient from '../api/client';
 import toast from 'react-hot-toast';
 
@@ -338,9 +339,13 @@ export const Dashboard = () => {
                 </table>
               </div>
             ) : (
-              <div className="flex flex-col items-center justify-center p-8 bg-dark-950/20 border border-dashed border-dark-800 rounded-xl text-center text-xs text-dark-400 space-y-2">
-                <span>No applications logged in history yet.</span>
-                <Link to="/match" className="text-indigo-400 hover:underline font-bold">Find jobs to match and apply</Link>
+              <div className="space-y-6">
+                <div className="flex flex-col items-center justify-center p-8 bg-dark-950/20 border border-dashed border-dark-800 rounded-xl text-center text-xs text-dark-400 space-y-2">
+                  <span>No applications logged in history yet.</span>
+                  <Link to="/match" className="text-indigo-400 hover:underline font-bold">Find jobs to match and apply</Link>
+                </div>
+
+                <SavedJobsPipeline />
               </div>
             )}
           </div>

@@ -2,6 +2,7 @@ import pytest
 import json
 from unittest.mock import patch, MagicMock
 from app.jobs.matcher import JobMatcher
+from app.auth.models import DBManager
 
 @patch("app.llm.ollama_client.OllamaClient.generate")
 @patch("app.vector_db.profile_store.ProfileStore.get_profile")
@@ -12,6 +13,8 @@ def test_interview_coach_flow(mock_get_profile, mock_llm, client):
         "password": "password123",
         "full_name": "Coach Tester"
     })
+    user = DBManager.get_user_by_email("coach_tester@test.com")
+    DBManager.verify_email(user["id"])
     login_res = client.post("/auth/login", json={
         "email": "coach_tester@test.com",
         "password": "password123"

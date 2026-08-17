@@ -1,4 +1,5 @@
 import pytest
+from app.auth.models import DBManager
 
 def test_market_intelligence_endpoints(client):
     # Register & Login
@@ -7,6 +8,8 @@ def test_market_intelligence_endpoints(client):
         "password": "password123",
         "full_name": "Market Tester"
     })
+    user = DBManager.get_user_by_email("market_tester@test.com")
+    DBManager.verify_email(user["id"])
     login_res = client.post("/auth/login", json={
         "email": "market_tester@test.com",
         "password": "password123"

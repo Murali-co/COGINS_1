@@ -2,6 +2,7 @@ import pytest
 import os
 import json
 from pathlib import Path
+from app.auth.models import DBManager
 
 def test_feedback_submission_endpoint(client):
     # 1. Register & Login
@@ -10,6 +11,8 @@ def test_feedback_submission_endpoint(client):
         "password": "password123",
         "full_name": "Feedback Tester"
     })
+    user = DBManager.get_user_by_email("feedback_tester@test.com")
+    DBManager.verify_email(user["id"])
     login_res = client.post("/auth/login", json={
         "email": "feedback_tester@test.com",
         "password": "password123"

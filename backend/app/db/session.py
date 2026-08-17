@@ -6,13 +6,20 @@ from app.config import settings
 # Use a synchronous SQLAlchemy engine with connection pooling for Neon/Postgres
 ENGINE_URL = settings.DATABASE_URL
 
-engine = create_engine(
-    ENGINE_URL,
-    pool_size=10,
-    max_overflow=20,
-    pool_pre_ping=True,
-    future=True,
-)
+if ENGINE_URL.startswith("sqlite"):
+    engine = create_engine(
+        ENGINE_URL,
+        connect_args={"check_same_thread": False},
+        future=True,
+    )
+else:
+    engine = create_engine(
+        ENGINE_URL,
+        pool_size=10,
+        max_overflow=20,
+        pool_pre_ping=True,
+        future=True,
+    )
 
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 

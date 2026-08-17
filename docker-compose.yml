@@ -124,6 +124,8 @@ services:
         condition: service_healthy
       chroma:
         condition: service_healthy
+      ollama:
+        condition: service_healthy
     networks:
       - cognis-network
     restart: unless-stopped

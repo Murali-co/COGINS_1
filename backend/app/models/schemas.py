@@ -111,6 +111,8 @@ class ApplicationSubmitRequest(BaseModel):
     job_url: Optional[str] = None
     title: Optional[str] = None
     company: Optional[str] = None
+    resume_version_id: Optional[int] = None
+    tone: Optional[str] = "formal"
 
 class ApplicationHistoryOut(BaseModel):
     id: str
@@ -125,6 +127,9 @@ class ApplicationHistoryOut(BaseModel):
     notes: str
     location: Optional[str] = None
     job_url: Optional[str] = None
+    resume_version_id: Optional[int] = None
+    tone: Optional[str] = None
+    status_history: Optional[List[Dict[str, Any]]] = None
 
 
 # --- Email Verification & Password Reset ---
