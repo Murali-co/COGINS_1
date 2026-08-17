@@ -38,6 +38,20 @@ COGNIS is a production-ready, local-first AI career development assistant. It op
 *   **Submission Tracking:** Logs submission histories, tailored assets, and application notes.
 *   **Transactional Notifications:** Automated email notifications (welcome, verification, digest) via Resend.
 
+### Phase 3: Advanced Orchestration & Multi-Tool Execution
+*   **Tool Framework Engine:** Extensible orchestration system for managing AI-powered career tools and capabilities.
+*   **Capability-Based Planning:** Intelligent task planning based on user goals and available tool capabilities.
+*   **Tool Registry & Management:** Centralized tool registration, validation, and execution framework.
+*   **Permission-Based Access Control:** Fine-grained permissions system for tool execution and data access.
+*   **Tool Execution Pipeline:** Robust execution runner with error handling and state management.
+*   **Saved Pipeline Management:** Create and manage complex workflows for job application pipelines (UI: SavedJobsPipeline component).
+
+### Phase 4: Enhanced Security & Audit Logging
+*   **Refresh Token System:** JWT refresh token implementation for improved session security.
+*   **Audit Logging:** Comprehensive audit trail tracking user actions and system events for compliance and debugging.
+*   **Rate Limiting:** Advanced rate limiting protection against abuse and brute-force attacks.
+*   **Enhanced Authentication:** Improved auth security with proper token management and validation.
+
 ---
 
 ## 🛠️ Technology Stack
@@ -145,6 +159,7 @@ If you prefer to run services manually on your local system:
 |---|---|---|---|
 | **POST** | `/auth/register` | Register a new user account | No |
 | **POST** | `/auth/login` | Authenticate credentials and get JWT token / cookie | No |
+| **POST** | `/auth/refresh` | Refresh JWT token using refresh token | Yes |
 | **GET** | `/auth/me` | Fetch active user credentials | Yes |
 | **GET** | `/auth/admin/stats` | Access system analytics and diagnostics | Yes (Admin) |
 | **POST** | `/resume/upload` | Parse PDF/DOCX and save profile | Yes |
@@ -156,3 +171,80 @@ If you prefer to run services manually on your local system:
 | **POST** | `/apply/submit` | Log job application history in PostgreSQL | Yes |
 | **GET** | `/apply/history` | List application history logs | Yes |
 | **GET** | `/jobs/{job_id}/status` | Check status of background AI tailoring tasks | Yes |
+| **GET** | `/orchestrator/capabilities` | List available AI tools and capabilities | Yes |
+| **POST** | `/orchestrator/plan` | Generate execution plan for career goals | Yes |
+| **POST** | `/orchestrator/execute` | Execute planned workflow and tools | Yes |
+| **GET** | `/orchestrator/pipelines` | List saved job application pipelines | Yes |
+| **POST** | `/orchestrator/pipelines` | Create new saved pipeline workflow | Yes |
+| **PUT** | `/orchestrator/pipelines/{pipeline_id}` | Update existing pipeline | Yes |
+| **DELETE** | `/orchestrator/pipelines/{pipeline_id}` | Delete saved pipeline | Yes |
+
+---
+
+## 🧪 Testing Infrastructure
+
+COGNIS includes a comprehensive testing suite covering all major modules:
+
+- **Application Features:** `test_application_features.py` - Tests for application workflow functionality
+- **Authentication & Security:** `test_auth_security.py`, `test_auth.py` - Auth flows, token management, and security
+- **Interview Mode:** `test_interview_mode.py`, `test_interview.py` - Mock interview and feedback systems
+- **Orchestrator & Tools:** `test_orchestrator.py`, `test_tool_framework.py` - Tool execution and orchestration engine
+- **LLM Integration:** `test_ollama_client.py` - Ollama model connectivity and inference
+- **Other Features:** Tests for copilot, email verification, RAG, tailor, feedback, market intelligence
+
+**Running Tests:**
+```bash
+cd backend
+pytest tests/ -v  # Run all tests
+pytest tests/test_orchestrator.py -v  # Run specific test
+```
+
+---
+
+## 🎨 UI Components
+
+### Recent Additions
+- **SavedJobsPipeline Component:** Visual pipeline builder and manager for creating complex job application workflows. Integrates with the orchestration engine for automated multi-step application processes.
+
+---
+
+## 🔧 Project Structure
+
+```
+COGNIS/
+├── backend/
+│   ├── app/
+│   │   ├── orchestrator/          # Tool framework & execution engine
+│   │   ├── auth/                   # Enhanced auth with refresh tokens
+│   │   ├── llm/                    # Ollama integration
+│   │   ├── resume/                 # Resume parsing & tailoring
+│   │   ├── jobs/                   # Job scraping & matching
+│   │   ├── vector_db/              # ChromaDB vector search
+│   │   ├── notifications/          # Email notifications
+│   │   └── ...                     # Other modules
+│   └── tests/                      # Comprehensive test suite
+├── frontend/
+│   ├── src/
+│   │   ├── components/             # Reusable React components
+│   │   ├── pages/                  # Page-level components
+│   │   ├── hooks/                  # Custom React hooks
+│   │   └── ...
+│   └── Dockerfile
+└── docker-compose.yml
+```
+
+---
+
+## 🤝 Contributing
+
+Contributions are welcome! The project follows standard Git workflows. Please ensure:
+1. Tests pass: `pytest tests/ -v`
+2. Code follows existing patterns and conventions
+3. New features include corresponding test coverage
+4. PR descriptions clearly explain changes and new functionality
+
+---
+
+## 📝 License
+
+This project is provided as-is for local development and deployment.
