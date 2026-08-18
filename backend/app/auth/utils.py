@@ -80,7 +80,12 @@ async def get_current_user(
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
         user_id: int = payload.get("user_id")
         email: str = payload.get("email")
-        if user_id is None or email is None:
+        if payload.get("purpose") == "2fa_pending":
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Full authentication required. Please complete 2FA verification."
+            )
+        if user_id is None:
             raise credentials_exception
     except JWTError:
         raise credentials_exception

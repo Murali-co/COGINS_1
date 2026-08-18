@@ -34,6 +34,13 @@ class User(Base):
     # Password reset fields
     reset_password_token = Column(String, nullable=True, unique=True)
     reset_password_token_expiry = Column(DateTime(timezone=True), nullable=True)
+
+    # 2FA fields
+    two_factor_enabled = Column(Boolean, nullable=False, default=False, server_default='false')
+    two_factor_secret = Column(String, nullable=True)
+
+    # Orchestrator preferences
+    auto_approve_external_actions = Column(Boolean, nullable=False, default=False, server_default='false')
     
 
 
@@ -188,4 +195,13 @@ class AuthAuditLog(Base):
     user_agent = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     detail = Column(Text, nullable=True)
+
+
+class TwoFactorBackupCode(Base):
+    __tablename__ = "two_factor_backup_codes"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    code_hash = Column(String(64), nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    used_at = Column(DateTime(timezone=True), nullable=True)
 

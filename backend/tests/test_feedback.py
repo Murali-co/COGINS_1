@@ -18,7 +18,10 @@ def test_feedback_submission_endpoint(client):
         "password": "password123"
     })
     token = login_res.json()["access_token"]
+    csrf_token = login_res.cookies.get("csrf_token")
     headers = {"Authorization": f"Bearer {token}"}
+    if csrf_token:
+        headers["X-CSRF-Token"] = csrf_token
 
     # 2. Submit Feedback
     feedback_text = "This application is fantastic! The UI is very smooth."

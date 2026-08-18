@@ -22,6 +22,8 @@ import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
 import AppliedJobs from './pages/AppliedJobs';
 import VerificationSuccess from './pages/VerificationSuccess';
+import SecuritySettings from './pages/SecuritySettings';
+import AdminAuditLog from './pages/AdminAuditLog';
 import { LoadingSpinner } from './components/LoadingSpinner';
 
 const queryClient = new QueryClient({
@@ -82,6 +84,8 @@ function AppContent() {
           <Route path="/applied-jobs" element={<ProtectedRoute><AppliedJobs /></ProtectedRoute>} />
           <Route path="/copilot" element={<ProtectedRoute><CareerCopilot /></ProtectedRoute>} />
           <Route path="/interview" element={<ProtectedRoute><InterviewCoach /></ProtectedRoute>} />
+          <Route path="/security" element={<ProtectedRoute><SecuritySettings /></ProtectedRoute>} />
+          <Route path="/admin/audit-log" element={<ProtectedRoute><AdminAuditLog /></ProtectedRoute>} />
           
           {/* Catch-all */}
           <Route path="*" element={<Navigate to="/" replace />} />

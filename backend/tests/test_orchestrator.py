@@ -22,7 +22,11 @@ def get_auth_user(client, email: str, name: str = "Test User"):
         "password": "Password123!"
     })
     token = login_res.json()["access_token"]
-    headers = {"Authorization": f"Bearer {token}"}
+    csrf_token = login_res.cookies.get("csrf_token")
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "X-CSRF-Token": csrf_token
+    }
     return user["id"], headers
 
 @pytest.mark.asyncio
@@ -109,7 +113,7 @@ async def test_invalid_plan_unapproved_capability(client):
         workflow = await OrchestratorEngine.run_workflow(user_id=user_id, request=req)
 
         assert workflow.status == WorkflowState.FAILED
-        assert "unapproved capability" in workflow.error.lower() or "failed" in workflow.error.lower()
+        assert "not approved" in workflow.error.lower() or "unapproved capability" in workflow.error.lower() or "failed" in workflow.error.lower()
 
 
 @pytest.mark.asyncio

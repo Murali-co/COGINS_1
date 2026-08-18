@@ -107,8 +107,15 @@ class OrchestratorEngine:
                 ]
 
                 if not ready_tasks:
+                    # Check if any task is awaiting approval
+                    awaiting_tasks = [t for t in pending_task_map.values() if t.status == TaskState.AWAITING_APPROVAL]
+                    if awaiting_tasks:
+                        cls._update_workflow_status(workflow_id, WorkflowState.AWAITING_APPROVAL)
+                        wf_dict = DBManager.get_workflow(workflow_id)
+                        return WorkflowSchema(**wf_dict)
+
                     # Circular dependency or missing task
-                    unresolved = [t.task_id for t in pending_task_map.values() if t.status == TaskState.PENDING]
+                    unresolved = [t.task_id for t in pending_task_map.values() if t.status in [TaskState.PENDING, TaskState.AWAITING_APPROVAL]]
                     return cls._mark_workflow_failed(
                         workflow_id,
                         f"Workflow blocked by unsatisfied task dependencies: {unresolved}"
@@ -118,6 +125,33 @@ class OrchestratorEngine:
                     # Execute ready task
                     if cls.is_cancelled(workflow_id):
                         return cls._mark_workflow_cancelled(workflow_id)
+
+                    # Check capability risk tier
+                    risk_tier = CapabilityRegistry.get_risk_tier(task.task_type)
+                    if risk_tier == "external_action":
+                        user_info = DBManager.get_user_by_id(user_id) or {}
+                        auto_approve = user_info.get("auto_approve_external_actions", False)
+                        if auto_approve:
+                            DBManager.log_auth_event(
+                                user_id=user_id,
+                                event_type="orchestrator_approval_auto_approved",
+                                ip_address="127.0.0.1",
+                                user_agent="OrchestratorEngine",
+                                detail=f"Auto-approved task '{task.task_id}' ({task.task_type}) for workflow '{workflow_id}'"
+                            )
+                        else:
+                            # Pause execution and transition to AWAITING_APPROVAL
+                            cls._update_task_status(workflow_id, task.task_id, TaskState.AWAITING_APPROVAL)
+                            cls._update_workflow_status(workflow_id, WorkflowState.AWAITING_APPROVAL)
+                            DBManager.log_auth_event(
+                                user_id=user_id,
+                                event_type="orchestrator_approval_submitted",
+                                ip_address="127.0.0.1",
+                                user_agent="OrchestratorEngine",
+                                detail=f"Task '{task.task_id}' ({task.task_type}) submitted for human approval in workflow '{workflow_id}'"
+                            )
+                            wf_dict = DBManager.get_workflow(workflow_id)
+                            return WorkflowSchema(**wf_dict)
 
                     # Inject outputs from dependency tasks into task input if relevant
                     merged_input = cls._merge_dependency_inputs(task.input, task.dependencies, completed_task_outputs)
@@ -181,6 +215,128 @@ class OrchestratorEngine:
             return cls._mark_workflow_failed(workflow_id, f"Orchestrator exception: {str(e)}")
 
     @classmethod
+    async def resume_workflow(
+        cls,
+        user_id: int,
+        workflow_id: str,
+        approved_task_id: str,
+        execution_timeout: float = 60.0,
+        max_retries: int = 1
+    ) -> WorkflowSchema:
+        """Resume a workflow after a task has been approved."""
+        wf_dict = DBManager.get_workflow(workflow_id)
+        if not wf_dict:
+            raise ValueError(f"Workflow '{workflow_id}' not found.")
+
+        # Update approved task status to PENDING so it can be picked up
+        cls._update_task_status(workflow_id, approved_task_id, TaskState.PENDING)
+        cls._update_workflow_status(workflow_id, WorkflowState.RUNNING)
+
+        # Re-fetch tasks
+        tasks_raw = wf_dict.get("tasks", [])
+        tasks: List[TaskSchema] = [TaskSchema(**t) if isinstance(t, dict) else t for t in tasks_raw]
+
+        # Populate completed task outputs
+        completed_task_outputs: Dict[str, Dict[str, Any]] = {}
+        pending_task_map: Dict[str, TaskSchema] = {}
+
+        for t in tasks:
+            if t.task_id == approved_task_id:
+                t.status = TaskState.PENDING
+            if t.status == TaskState.COMPLETED:
+                completed_task_outputs[t.task_id] = t.output or {}
+            else:
+                pending_task_map[t.task_id] = t
+
+        start_time = asyncio.get_event_loop().time()
+
+        while pending_task_map:
+            elapsed = asyncio.get_event_loop().time() - start_time
+            if elapsed > execution_timeout:
+                return cls._mark_workflow_failed(workflow_id, f"Workflow execution timed out after {execution_timeout:.1f}s.")
+
+            if cls.is_cancelled(workflow_id):
+                return cls._mark_workflow_cancelled(workflow_id)
+
+            ready_tasks = [
+                task for task in pending_task_map.values()
+                if task.status == TaskState.PENDING and
+                all(dep_id in completed_task_outputs for dep_id in task.dependencies)
+            ]
+
+            if not ready_tasks:
+                awaiting_tasks = [t for t in pending_task_map.values() if t.status == TaskState.AWAITING_APPROVAL]
+                if awaiting_tasks:
+                    cls._update_workflow_status(workflow_id, WorkflowState.AWAITING_APPROVAL)
+                    return WorkflowSchema(**DBManager.get_workflow(workflow_id))
+                unresolved = [t.task_id for t in pending_task_map.values() if t.status in [TaskState.PENDING, TaskState.AWAITING_APPROVAL]]
+                return cls._mark_workflow_failed(workflow_id, f"Workflow blocked by unsatisfied task dependencies: {unresolved}")
+
+            for task in ready_tasks:
+                if cls.is_cancelled(workflow_id):
+                    return cls._mark_workflow_cancelled(workflow_id)
+
+                risk_tier = CapabilityRegistry.get_risk_tier(task.task_type)
+                # If this task was just approved, we skip re-asking approval for it
+                if risk_tier == "external_action" and task.task_id != approved_task_id:
+                    user_info = DBManager.get_user_by_id(user_id) or {}
+                    auto_approve = user_info.get("auto_approve_external_actions", False)
+                    if auto_approve:
+                        DBManager.log_auth_event(
+                            user_id=user_id,
+                            event_type="orchestrator_approval_auto_approved",
+                            ip_address="127.0.0.1",
+                            user_agent="OrchestratorEngine",
+                            detail=f"Auto-approved task '{task.task_id}' ({task.task_type}) for workflow '{workflow_id}'"
+                        )
+                    else:
+                        cls._update_task_status(workflow_id, task.task_id, TaskState.AWAITING_APPROVAL)
+                        cls._update_workflow_status(workflow_id, WorkflowState.AWAITING_APPROVAL)
+                        DBManager.log_auth_event(
+                            user_id=user_id,
+                            event_type="orchestrator_approval_submitted",
+                            ip_address="127.0.0.1",
+                            user_agent="OrchestratorEngine",
+                            detail=f"Task '{task.task_id}' ({task.task_type}) submitted for human approval in workflow '{workflow_id}'"
+                        )
+                        return WorkflowSchema(**DBManager.get_workflow(workflow_id))
+
+                merged_input = cls._merge_dependency_inputs(task.input, task.dependencies, completed_task_outputs)
+                task_success = False
+                task_output = None
+                last_error = None
+
+                for attempt in range(max_retries + 1):
+                    if cls.is_cancelled(workflow_id):
+                        return cls._mark_workflow_cancelled(workflow_id)
+                    cls._update_task_status(workflow_id, task.task_id, TaskState.RUNNING)
+                    try:
+                        task_output = await asyncio.wait_for(
+                            CapabilityRegistry.execute(
+                                name=task.task_type,
+                                user_id=user_id,
+                                input_data=merged_input
+                            ),
+                            timeout=min(30.0, execution_timeout)
+                        )
+                        task_success = True
+                        break
+                    except Exception as e:
+                        last_error = str(e) or type(e).__name__
+                        if attempt < max_retries:
+                            await asyncio.sleep(0.5)
+
+                if task_success:
+                    completed_task_outputs[task.task_id] = task_output or {}
+                    cls._update_task_completed(workflow_id, task.task_id, task_output)
+                    pending_task_map.pop(task.task_id)
+                else:
+                    cls._update_task_failed(workflow_id, task.task_id, last_error or "Unknown error")
+                    return cls._mark_workflow_failed(workflow_id, f"Task '{task.task_id}' ({task.task_type}) failed: {last_error}")
+
+        return cls._mark_workflow_completed(workflow_id)
+
+    @classmethod
     def _merge_dependency_inputs(
         cls,
         task_input: Dict[str, Any],
@@ -229,8 +385,20 @@ class OrchestratorEngine:
     @classmethod
     def _mark_workflow_failed(cls, workflow_id: str, error_msg: str) -> WorkflowSchema:
         now_str = datetime.now(timezone.utc).isoformat(sep=' ')
-        DBManager.finish_workflow(workflow_id, WorkflowState.FAILED.value, error=error_msg, completed_at=now_str)
+        try:
+            DBManager.finish_workflow(workflow_id, WorkflowState.FAILED.value, error=error_msg, completed_at=now_str)
+        except Exception as e:
+            print(f"[OrchestratorEngine] finish_workflow error: {e}")
         wf_dict = DBManager.get_workflow(workflow_id)
+        if not wf_dict:
+            return WorkflowSchema(
+                workflow_id=workflow_id,
+                user_id=0,
+                goal="Unknown",
+                status=WorkflowState.FAILED,
+                error=error_msg,
+                tasks=[]
+            )
         return WorkflowSchema(**wf_dict)
 
     @classmethod

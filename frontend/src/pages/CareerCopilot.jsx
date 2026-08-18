@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import apiClient from '../api/client';
 import { useJobs } from '../hooks/useJobs';
 import { LoadingSpinner } from '../components/LoadingSpinner';
+import PendingApprovalCard from '../components/PendingApprovalCard';
+import { RiskTierBadge, ApprovalStatusBadge } from '../components/RiskTierBadge';
 import toast from 'react-hot-toast';
 
 export const CareerCopilot = () => {
@@ -13,14 +15,56 @@ export const CareerCopilot = () => {
   const [selectedJobId, setSelectedJobId] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const [pendingWorkflows, setPendingWorkflows] = useState([]);
+  const [capabilities, setCapabilities] = useState([]);
   const messagesEndRef = useRef(null);
 
   const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+
+  const fetchPendingApprovals = async () => {
+    try {
+      const res = await apiClient.get('/orchestrator/workflows');
+      const workflows = res.data || [];
+      const pendingList = [];
+      for (const wf of workflows) {
+        if (wf.status === 'AWAITING_APPROVAL') {
+          try {
+            const tasksRes = await apiClient.get(`/orchestrator/workflows/${wf.workflow_id}/pending-approval`);
+            if (tasksRes.data && tasksRes.data.length > 0) {
+              for (const pendingTask of tasksRes.data) {
+                pendingList.push({
+                  workflow_id: wf.workflow_id,
+                  goal: wf.goal,
+                  pendingTask
+                });
+              }
+            }
+          } catch (e) {
+            console.error(e);
+          }
+        }
+      }
+      setPendingWorkflows(pendingList);
+    } catch (err) {
+      // Ignore orchestrator error if endpoint isn't active
+    }
+  };
+
+  const fetchCapabilities = async () => {
+    try {
+      const res = await apiClient.get('/orchestrator/capabilities');
+      setCapabilities(res.data || []);
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
   // Load user sessions on mount
   useEffect(() => {
     fetchSessions();
     startNewSession();
+    fetchPendingApprovals();
+    fetchCapabilities();
   }, []);
 
   // Auto scroll to bottom when messages update
@@ -85,11 +129,20 @@ export const CareerCopilot = () => {
 
     try {
       const token = localStorage.getItem('token');
+      const csrfToken = (() => {
+        if (typeof document === 'undefined') return '';
+        const match = document.cookie.match(new RegExp(`(?:^|; )csrf_token=([^;]*)`));
+        return match ? decodeURIComponent(match[1]) : '';
+      })();
+
       const headers = {
         'Content-Type': 'application/json'
       };
       if (token) {
         headers['Authorization'] = `Bearer ${token}`;
+      }
+      if (csrfToken) {
+        headers['X-CSRF-Token'] = csrfToken;
       }
 
       const response = await fetch(`${API_URL}/copilot/chat`, {
@@ -194,8 +247,10 @@ export const CareerCopilot = () => {
       // Refresh sidebar sessions list
       fetchSessions();
     } catch (err) {
-      toast.error('Connection to local LLM failed. Make sure Ollama is running.');
-      setMessages(prev => [...prev, { role: 'assistant', content: 'Could not connect to Ollama. Ensure Ollama is running locally with Qwen2.5:7B.' }]);
+      console.error('Copilot chat error:', err);
+      const errMsg = err.message || 'Connection to local LLM failed. Make sure Ollama is running.';
+      toast.error(errMsg);
+      setMessages(prev => [...prev, { role: 'assistant', content: `Error: ${errMsg}` }]);
     } finally {
       setIsSending(false);
     }
@@ -238,6 +293,24 @@ export const CareerCopilot = () => {
           </select>
         </div>
       </div>
+
+      {/* Pending Agent Action Approvals Banner */}
+      {pendingWorkflows.length > 0 && (
+        <div className="space-y-3">
+          <h2 className="text-sm font-bold text-amber-300 flex items-center space-x-2">
+            <span>✋</span>
+            <span>Pending Agent Action Approvals ({pendingWorkflows.length})</span>
+          </h2>
+          {pendingWorkflows.map((item, idx) => (
+            <PendingApprovalCard
+              key={idx}
+              workflowId={item.workflow_id}
+              pendingTask={item.pendingTask}
+              onActionComplete={() => fetchPendingApprovals()}
+            />
+          ))}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-8 min-h-[600px]">
         {/* Sidebar history */}

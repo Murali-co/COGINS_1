@@ -46,13 +46,14 @@ def verified_user(test_user):
 
 @pytest.fixture
 def verified_user_token(verified_user):
-    """Get authenticated user token"""
+    """Get authenticated user token and ensure CSRF header is available on test client"""
     response = client.post("/auth/login", json={
         "email": verified_user["email"],
         "password": verified_user["password"]
     })
     token = response.json()["access_token"]
-    client.cookies.clear()
+    csrf_token = response.cookies.get("csrf_token")
+    client.headers.update({"X-CSRF-Token": csrf_token} if csrf_token else {})
     return token
 
 
@@ -165,11 +166,13 @@ class TestPasswordReset:
     
     def test_reset_password_with_valid_token(self, verified_user):
         """Test password reset with valid token"""
-        # Generate JWT reset token
-        token = create_access_token(
-            data={"user_id": verified_user["id"], "action": "reset_password"},
-            expires_delta=timedelta(minutes=15)
-        )
+        # Request forgot password to generate and store token
+        forgot_res = client.post("/auth/forgot-password", json={"email": verified_user["email"]})
+        assert forgot_res.status_code == 200
+
+        user_db = DBManager.get_user_by_id(verified_user["id"])
+        token = user_db["reset_password_token"]
+        assert token is not None
         
         new_password = "newpassword123"
         response = client.post("/auth/reset-password", json={
@@ -197,7 +200,7 @@ class TestPasswordReset:
         })
         
         assert response.status_code == 400
-        assert "expired or invalid" in response.json()["detail"].lower()
+        assert "invalid" in response.json()["detail"].lower()
     
     def test_reset_password_with_expired_token(self, verified_user):
         """Test password reset with expired token"""
@@ -206,6 +209,7 @@ class TestPasswordReset:
             data={"user_id": verified_user["id"], "action": "reset_password"},
             expires_delta=timedelta(minutes=-15)  # Already expired
         )
+        DBManager.set_reset_password_token(verified_user["id"], token, datetime.now(timezone.utc) - timedelta(minutes=15))
         
         response = client.post("/auth/reset-password", json={
             "token": token,

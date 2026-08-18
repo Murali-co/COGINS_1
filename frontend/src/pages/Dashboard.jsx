@@ -5,6 +5,7 @@ import { useJobs } from '../hooks/useJobs';
 import { LoadingSpinner } from '../components/LoadingSpinner';
 import MarketInsights from '../components/MarketInsights';
 import SavedJobsPipeline from '../components/SavedJobsPipeline';
+import PendingApprovalCard from '../components/PendingApprovalCard';
 import apiClient from '../api/client';
 import toast from 'react-hot-toast';
 
@@ -15,6 +16,9 @@ export const Dashboard = () => {
 
   // Tab State: 'overview', 'customize', 'versions', 'admin'
   const [activeTab, setActiveTab] = useState('overview');
+
+  // Pending Approvals State
+  const [pendingWorkflows, setPendingWorkflows] = useState([]);
   
   // Customization Form State
   const [editSkills, setEditSkills] = useState('');
@@ -62,6 +66,40 @@ export const Dashboard = () => {
       setLoadingAdmin(false);
     }
   };
+
+  // Load pending approvals for human-in-the-loop gate
+  const fetchPendingApprovals = async () => {
+    try {
+      const res = await apiClient.get('/orchestrator/workflows');
+      const workflows = res.data || [];
+      const pendingList = [];
+      for (const wf of workflows) {
+        if (wf.status === 'AWAITING_APPROVAL') {
+          try {
+            const tasksRes = await apiClient.get(`/orchestrator/workflows/${wf.workflow_id}/pending-approval`);
+            if (tasksRes.data && tasksRes.data.length > 0) {
+              for (const pendingTask of tasksRes.data) {
+                pendingList.push({
+                  workflow_id: wf.workflow_id,
+                  goal: wf.goal,
+                  pendingTask
+                });
+              }
+            }
+          } catch (e) {
+            console.error(e);
+          }
+        }
+      }
+      setPendingWorkflows(pendingList);
+    } catch (err) {
+      // Ignore if orchestrator workflows empty
+    }
+  };
+
+  useEffect(() => {
+    fetchPendingApprovals();
+  }, []);
 
   useEffect(() => {
     if (activeTab === 'versions') {
@@ -167,6 +205,24 @@ export const Dashboard = () => {
       {/* TAB CONTENTS: Overview */}
       {activeTab === 'overview' && (
         <div className="space-y-8">
+          {/* Pending Agent Action Approvals Banner */}
+          {pendingWorkflows.length > 0 && (
+            <div className="space-y-3">
+              <h2 className="text-sm font-bold text-amber-300 flex items-center space-x-2">
+                <span>⚠️</span>
+                <span>Pending Agent Action Approvals ({pendingWorkflows.length})</span>
+              </h2>
+              {pendingWorkflows.map((item, idx) => (
+                <PendingApprovalCard
+                  key={idx}
+                  workflowId={item.workflow_id}
+                  pendingTask={item.pendingTask}
+                  onActionComplete={() => fetchPendingApprovals()}
+                />
+              ))}
+            </div>
+          )}
+
           {/* Metrics Row */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
             <div className="glass-panel border rounded-2xl p-5 flex items-center space-x-4">

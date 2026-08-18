@@ -135,20 +135,30 @@ class OllamaClient:
                             detail = e.response.text
                         except Exception:
                             detail = ""
+                    # 400/404 usually indicate bad request or model missing
                     if e.response is not None and e.response.status_code in {400, 404}:
+                        msg = detail or str(e)
                         raise RuntimeError(
-                            f"Ollama rejected the request for model '{cls.get_model()}': {e}. "
-                            f"Make sure the model is available and pulled with 'ollama pull {cls.get_model()}'."
+                            f"Ollama rejected the request for model '{cls.get_model()}': {msg}. "
+                            f"Ensure the model is available: ollama pull {cls.get_model()}"
                         ) from e
                     if attempt == retries - 1:
                         raise RuntimeError(f"Ollama API request failed after {retries} attempts: {e}") from e
                     print(f"Ollama connection attempt {attempt+1} failed. Retrying in {backoff}s...")
                     await asyncio.sleep(backoff)
                     backoff *= 2.0
-                except (httpx.HTTPError, httpx.NetworkError) as e:
+                except (httpx.ConnectError, httpx.ReadTimeout, httpx.NetworkError) as e:
+                    # Network-level failures (service down/unreachable)
                     if attempt == retries - 1:
-                        raise RuntimeError(f"Ollama API request failed after {retries} attempts: {e}") from e
-                    print(f"Ollama connection attempt {attempt+1} failed. Retrying in {backoff}s...")
+                        raise RuntimeError(f"Ollama service unreachable at {cls.get_base_url()}: {e}") from e
+                    print(f"Ollama connection attempt {attempt+1} failed (network). Retrying in {backoff}s...")
+                    await asyncio.sleep(backoff)
+                    backoff *= 2.0
+                except httpx.HTTPError as e:
+                    # Other HTTP errors
+                    if attempt == retries - 1:
+                        raise RuntimeError(f"Ollama HTTP error after {retries} attempts: {e}") from e
+                    print(f"Ollama connection attempt {attempt+1} failed (http). Retrying in {backoff}s...")
                     await asyncio.sleep(backoff)
                     backoff *= 2.0
             raise RuntimeError("Ollama API request failed after retries.")

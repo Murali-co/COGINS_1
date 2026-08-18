@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 from app.rag.memory import ChatMemory
 from app.rag.retriever import RAGRetriever
 from app.rag.generator import RAGGenerator
+from app.auth.models import DBManager
 
 def test_chat_memory():
     session_id = "test-session-123"
@@ -70,7 +71,10 @@ def test_rag_chat_endpoint(mock_query, mock_get_profile, mock_generate, client):
         "password": "password123"
     })
     token = login_res.json()["access_token"]
+    csrf_token = login_res.cookies.get("csrf_token")
     headers = {"Authorization": f"Bearer {token}"}
+    if csrf_token:
+        headers["X-CSRF-Token"] = csrf_token
     
     # Mock retriever responses
     mock_get_profile.return_value = {

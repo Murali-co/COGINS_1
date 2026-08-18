@@ -20,7 +20,10 @@ def test_interview_coach_flow(mock_get_profile, mock_llm, client):
         "password": "password123"
     })
     token = login_res.json()["access_token"]
+    csrf_token = login_res.cookies.get("csrf_token")
     headers = {"Authorization": f"Bearer {token}"}
+    if csrf_token:
+        headers["X-CSRF-Token"] = csrf_token
 
     # Setup profile mock
     mock_get_profile.return_value = {

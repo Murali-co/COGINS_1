@@ -89,6 +89,7 @@ import hmac
 EXEMPT_CSRF_PATHS = {
     "/auth/login", "/auth/register", "/auth/refresh",
     "/auth/forgot-password", "/auth/reset-password", "/auth/resend-verification",
+    "/auth/2fa/verify",
     "/health", "/", "/docs", "/openapi.json", "/redoc"
 }
 
@@ -99,14 +100,12 @@ async def security_middleware(request: Request, call_next):
         path = request.url.path.rstrip("/") or "/"
         if path not in EXEMPT_CSRF_PATHS and not any(path.startswith(p) for p in ["/docs", "/openapi.json"]):
             csrf_cookie = request.cookies.get("csrf_token")
-            # Enforce CSRF check if csrf_token cookie is present on state-changing requests
-            if csrf_cookie:
-                csrf_header = request.headers.get("x-csrf-token") or request.headers.get("X-CSRF-Token")
-                if not csrf_header or not hmac.compare_digest(csrf_cookie, csrf_header):
-                    return JSONResponse(
-                        status_code=status.HTTP_403_FORBIDDEN,
-                        content={"detail": "CSRF token validation failed"}
-                    )
+            csrf_header = request.headers.get("x-csrf-token") or request.headers.get("X-CSRF-Token")
+            if not csrf_cookie or not csrf_header or not hmac.compare_digest(csrf_cookie, csrf_header):
+                return JSONResponse(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    content={"detail": "CSRF token validation failed"}
+                )
 
     response = await call_next(request)
 
@@ -238,6 +237,42 @@ async def detailed_health_check():
         "sqlite": sqlite_status,
         "chromadb": chroma_status,
         "ollama": ollama_status
+    }
+
+
+@app.get("/api/health/ollama")
+async def ollama_health_detail():
+    """
+    Detailed Ollama health endpoint that also reports whether the configured model is available.
+    """
+    import httpx
+    models = []
+    reachable = False
+    model_available = False
+    details = ""
+    try:
+        url = f"{settings.OLLAMA_BASE_URL.rstrip('/')}/api/tags"
+        print(f"[OllamaHealth] querying {url}")
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(url)
+            reachable = resp.status_code == 200
+            if resp.status_code == 200:
+                data = resp.json()
+                models = [m.get("model") or m.get("name") for m in data.get("models", [])]
+                model_available = settings.OLLAMA_MODEL in models
+            else:
+                details = f"unexpected status {resp.status_code}"
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        details = f"{type(e).__name__}: {str(e)}"
+
+    return {
+        "ollama_reachable": reachable,
+        "configured_model": settings.OLLAMA_MODEL,
+        "model_available": model_available,
+        "available_models": models,
+        "details": details,
     }
 
 

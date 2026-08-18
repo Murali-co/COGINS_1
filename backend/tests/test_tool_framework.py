@@ -15,6 +15,7 @@ from app.orchestrator.tools.exceptions import (
     MalformedToolRequestError
 )
 from pydantic import BaseModel
+from app.auth.models import DBManager
 
 def get_auth_user(client, email: str, is_admin: bool = False):
     client.post("/auth/register", json={
@@ -33,7 +34,10 @@ def get_auth_user(client, email: str, is_admin: bool = False):
         "password": "Password123!"
     })
     token = login_res.json()["access_token"]
+    csrf_token = login_res.cookies.get("csrf_token")
     headers = {"Authorization": f"Bearer {token}"}
+    if csrf_token:
+        headers["X-CSRF-Token"] = csrf_token
     user_dict = DBManager.get_user_by_email(email)
     return user_dict, headers
 

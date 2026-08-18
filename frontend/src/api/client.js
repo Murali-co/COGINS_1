@@ -2,33 +2,42 @@ import axios from 'axios';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
+const getCookie = (name) => {
+  if (typeof document === 'undefined') return '';
+  const match = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
+  return match ? decodeURIComponent(match[1]) : '';
+};
+
 const apiClient = axios.create({
   baseURL: API_URL,
   withCredentials: true,
 });
 
-// Request interceptor for injecting JWT
 apiClient.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('token');
     if (token && token !== 'undefined' && token !== 'null') {
       config.headers.Authorization = `Bearer ${token}`;
     }
+
+    const method = (config.method || 'get').toLowerCase();
+    const isStateChangingRequest = ['post', 'put', 'patch', 'delete'].includes(method);
+    const csrfToken = getCookie('csrf_token');
+
+    if (isStateChangingRequest && csrfToken) {
+      config.headers['X-CSRF-Token'] = csrfToken;
+    }
+
     return config;
   },
-  (error) => {
-    return Promise.reject(error);
-  }
+  (error) => Promise.reject(error)
 );
 
-// Response interceptor for handling auth expiration
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response && error.response.status === 401) {
-      // Clear invalid credentials
       localStorage.removeItem('token');
-      // If we are not already on auth/landing pages, we can let the application handle redirect
     }
     return Promise.reject(error);
   }

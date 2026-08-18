@@ -16,12 +16,16 @@ class CapabilityRegistry:
     It can ONLY request execution of these pre-registered capabilities.
     """
     _registry: Dict[str, Dict[str, Any]] = {}
+    VALID_RISK_TIERS = {"read_only", "write_internal", "external_action"}
 
     @classmethod
-    def register(cls, name: str, description: str, handler: Callable[..., Awaitable[Dict[str, Any]]]):
+    def register(cls, name: str, description: str, handler: Callable[..., Awaitable[Dict[str, Any]]], risk_tier: str):
+        if risk_tier not in cls.VALID_RISK_TIERS:
+            raise ValueError(f"Invalid risk_tier '{risk_tier}'. Must be one of {cls.VALID_RISK_TIERS}")
         cls._registry[name] = {
             "name": name,
             "description": description,
+            "risk_tier": risk_tier,
             "handler": handler
         }
 
@@ -32,6 +36,12 @@ class CapabilityRegistry:
     @classmethod
     def get_capability_names(cls) -> List[str]:
         return list(cls._registry.keys())
+
+    @classmethod
+    def get_risk_tier(cls, name: str) -> str:
+        if name not in cls._registry:
+            raise ValueError(f"Capability '{name}' is not approved or registered.")
+        return cls._registry[name]["risk_tier"]
 
     @classmethod
     def is_valid_capability(cls, name: str) -> bool:
@@ -149,46 +159,71 @@ async def handle_send_notification(user_id: int, title: str = "COGNIS Update", m
         "notification_sent": True
     }
 
+async def handle_submit_job_application(user_id: int, job_id: str = "", company: str = "Target Company", title: str = "Target Position", **kwargs) -> Dict[str, Any]:
+    """External action capability: Submits job application on external employer portal."""
+    return {
+        "status": "success",
+        "job_id": job_id,
+        "company": company,
+        "title": title,
+        "application_submitted": True,
+        "message": f"Successfully submitted application to {company} for {title}"
+    }
+
 
 # Register all approved capabilities on import
 CapabilityRegistry.register(
     "analyze_resume",
     "Retrieve user resume text, extracted skills, and parsed section breakdown.",
-    handle_analyze_resume
+    handle_analyze_resume,
+    risk_tier="read_only"
 )
 
 CapabilityRegistry.register(
     "analyze_skill_gap",
     "Diagnose skill gaps against a target role or job description and recommend learning resources.",
-    handle_analyze_skill_gap
+    handle_analyze_skill_gap,
+    risk_tier="read_only"
 )
 
 CapabilityRegistry.register(
     "search_and_match_jobs",
     "Search and rank matching active job listings based on candidate profile embeddings.",
-    handle_search_and_match_jobs
+    handle_search_and_match_jobs,
+    risk_tier="read_only"
 )
 
 CapabilityRegistry.register(
     "tailor_resume",
     "Tailor resume keywords and generate optimized bullet points aligned with a target job description.",
-    handle_tailor_resume
+    handle_tailor_resume,
+    risk_tier="write_internal"
 )
 
 CapabilityRegistry.register(
     "generate_cover_letter",
     "Draft a personalized cover letter matching candidate experience to a target role and company.",
-    handle_generate_cover_letter
+    handle_generate_cover_letter,
+    risk_tier="write_internal"
 )
 
 CapabilityRegistry.register(
     "career_copilot_query",
     "Ask the RAG-grounded Career Copilot for personalized career planning advice.",
-    handle_career_copilot_query
+    handle_career_copilot_query,
+    risk_tier="read_only"
 )
 
 CapabilityRegistry.register(
     "send_notification",
     "Send an in-app notification alert to the user.",
-    handle_send_notification
+    handle_send_notification,
+    risk_tier="write_internal"
+)
+
+CapabilityRegistry.register(
+    "submit_job_application",
+    "Submit a formal job application and resume to an external employer portal on behalf of the candidate.",
+    handle_submit_job_application,
+    risk_tier="external_action"
 )

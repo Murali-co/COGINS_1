@@ -17,6 +17,9 @@ class UserOut(BaseModel):
     email: EmailStr
     full_name: str
     created_at: datetime
+    two_factor_enabled: Optional[bool] = False
+    auto_approve_external_actions: Optional[bool] = False
+    is_admin: Optional[bool] = False
 
     class Config:
         from_attributes = True
@@ -24,10 +27,23 @@ class UserOut(BaseModel):
 class Token(BaseModel):
     access_token: str
     token_type: str
+    requires_2fa: Optional[bool] = False
+    pending_token: Optional[str] = None
 
 class TokenData(BaseModel):
     email: Optional[str] = None
     user_id: Optional[int] = None
+
+class TwoFactorConfirmRequest(BaseModel):
+    secret: str
+    code: str
+
+class TwoFactorDisableRequest(BaseModel):
+    password: str
+
+class TwoFactorVerifyRequest(BaseModel):
+    pending_token: str
+    code: str
 
 
 # --- Resume / Profile ---

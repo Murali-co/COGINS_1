@@ -4,6 +4,7 @@ class WorkflowState(str, Enum):
     PENDING = "PENDING"
     PLANNING = "PLANNING"
     RUNNING = "RUNNING"
+    AWAITING_APPROVAL = "AWAITING_APPROVAL"
     WAITING = "WAITING"
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
@@ -12,6 +13,7 @@ class WorkflowState(str, Enum):
 class TaskState(str, Enum):
     PENDING = "PENDING"
     RUNNING = "RUNNING"
+    AWAITING_APPROVAL = "AWAITING_APPROVAL"
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
     CANCELLED = "CANCELLED"

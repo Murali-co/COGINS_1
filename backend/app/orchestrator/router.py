@@ -28,7 +28,7 @@ async def list_capabilities(current_user: dict = Depends(get_current_user)):
     """List all safe, approved capabilities available to the orchestrator."""
     caps = CapabilityRegistry.get_all()
     return [
-        {"name": c["name"], "description": c["description"]}
+        {"name": c["name"], "description": c["description"], "risk_tier": c["risk_tier"]}
         for c in caps.values()
     ]
 
@@ -135,7 +135,7 @@ async def create_and_run_workflow(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Goal cannot be empty."
         )
-        
+
     workflow = await OrchestratorEngine.run_workflow(
         user_id=current_user["id"],
         request=request
@@ -184,6 +184,150 @@ async def cancel_workflow_execution(
 
     OrchestratorEngine.cancel_workflow(workflow_id)
     DBManager.finish_workflow(workflow_id, WorkflowState.CANCELLED.value, error="Workflow cancelled by user.")
-    
+
+    updated_wf = DBManager.get_workflow(workflow_id)
+    return WorkflowSchema(**updated_wf)
+
+@router.get("/workflows/{workflow_id}/pending-approval", response_model=List[Dict[str, Any]])
+async def get_pending_approvals(
+    workflow_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Retrieve all tasks in a workflow that are currently awaiting human approval."""
+    wf_dict = DBManager.get_workflow(workflow_id)
+    if not wf_dict or wf_dict.get("user_id") != current_user["id"]:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workflow not found."
+        )
+
+    tasks = wf_dict.get("tasks", [])
+    pending = []
+    for t in tasks:
+        t_dict = t if isinstance(t, dict) else t.model_dump()
+        if t_dict.get("status") in ["AWAITING_APPROVAL", WorkflowState.AWAITING_APPROVAL.value]:
+            task_type = t_dict.get("task_type", "")
+            risk_tier = CapabilityRegistry.get_risk_tier(task_type) if CapabilityRegistry.is_valid_capability(task_type) else "unknown"
+            input_data = t_dict.get("input", {})
+            company = input_data.get("company", "Target Company")
+            title = input_data.get("title", input_data.get("target_role", "Target Position"))
+
+            pending.append({
+                "task_id": t_dict.get("task_id"),
+                "task_type": task_type,
+                "description": t_dict.get("description"),
+                "risk_tier": risk_tier,
+                "status": "AWAITING_APPROVAL",
+                "input": input_data,
+                "summary": f"Submit application to {company} for {title} using your tailored resume"
+            })
+    return pending
+
+@router.post("/workflows/{workflow_id}/approve", response_model=WorkflowSchema)
+async def approve_pending_task(
+    workflow_id: str,
+    payload: Dict[str, Any] = Body(...),
+    current_user: dict = Depends(get_current_user)
+):
+    """Approve a pending external action task and resume workflow execution."""
+    task_id = payload.get("task_id")
+    if not task_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="task_id is required."
+        )
+
+    wf_dict = DBManager.get_workflow(workflow_id)
+    if not wf_dict or wf_dict.get("user_id") != current_user["id"]:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workflow not found."
+        )
+
+    tasks = wf_dict.get("tasks", [])
+    target_task = None
+    for t in tasks:
+        t_dict = t if isinstance(t, dict) else t.model_dump()
+        if t_dict.get("task_id") == task_id:
+            target_task = t_dict
+            break
+
+    if not target_task:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Task '{task_id}' not found in workflow."
+        )
+
+    if target_task.get("status") not in ["AWAITING_APPROVAL", WorkflowState.AWAITING_APPROVAL.value]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Task '{task_id}' is in status '{target_task.get('status')}', not AWAITING_APPROVAL."
+        )
+
+    # Log audit event
+    DBManager.log_auth_event(
+        user_id=current_user["id"],
+        event_type="orchestrator_approval_approved",
+        ip_address="127.0.0.1",
+        user_agent="Client",
+        detail=f"User '{current_user['email']}' approved task '{task_id}' ({target_task.get('task_type')}) in workflow '{workflow_id}'"
+    )
+
+    # Resume workflow execution
+    resumed_wf = await OrchestratorEngine.resume_workflow(
+        user_id=current_user["id"],
+        workflow_id=workflow_id,
+        approved_task_id=task_id
+    )
+    return resumed_wf
+
+@router.post("/workflows/{workflow_id}/reject", response_model=WorkflowSchema)
+async def reject_pending_task(
+    workflow_id: str,
+    payload: Dict[str, Any] = Body(...),
+    current_user: dict = Depends(get_current_user)
+):
+    """Reject a pending external action task and cancel workflow execution."""
+    task_id = payload.get("task_id")
+    if not task_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="task_id is required."
+        )
+
+    wf_dict = DBManager.get_workflow(workflow_id)
+    if not wf_dict or wf_dict.get("user_id") != current_user["id"]:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workflow not found."
+        )
+
+    tasks = wf_dict.get("tasks", [])
+    target_task = None
+    for t in tasks:
+        t_dict = t if isinstance(t, dict) else t.model_dump()
+        if t_dict.get("task_id") == task_id:
+            target_task = t_dict
+            break
+
+    if not target_task:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Task '{task_id}' not found in workflow."
+        )
+
+    # Log audit event
+    DBManager.log_auth_event(
+        user_id=current_user["id"],
+        event_type="orchestrator_approval_rejected",
+        ip_address="127.0.0.1",
+        user_agent="Client",
+        detail=f"User '{current_user['email']}' rejected task '{task_id}' ({target_task.get('task_type')}) in workflow '{workflow_id}'"
+    )
+
+    # Mark task and workflow as CANCELLED
+    DBManager.update_task_status(workflow_id, task_id, "CANCELLED")
+    DBManager.finish_workflow(workflow_id, WorkflowState.CANCELLED.value, error=f"Task '{task_id}' rejected by user.")
+
     updated_wf = DBManager.get_workflow(workflow_id)
     return WorkflowSchema(**updated_wf)

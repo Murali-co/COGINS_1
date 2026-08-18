@@ -20,6 +20,15 @@ target_metadata = Base.metadata
 # other values from the config, defined by the needs of env.py,
 # can be acquired: config.get_main_option("..."), etc.
 DATABASE_URL = os.environ.get('DATABASE_URL') or config.get_main_option('sqlalchemy.url')
+# If psycopg (v3) is installed and the URL uses the generic 'postgresql://' scheme,
+# prefer the 'postgresql+psycopg://' scheme so Alembic/SQLAlchemy import the
+# correct DBAPI module instead of attempting to import psycopg2.
+if DATABASE_URL and DATABASE_URL.startswith('postgresql://') and '+' not in DATABASE_URL:
+    try:
+        import psycopg  # type: ignore
+        DATABASE_URL = DATABASE_URL.replace('postgresql://', 'postgresql+psycopg://', 1)
+    except Exception:
+        pass
 config.set_main_option('sqlalchemy.url', DATABASE_URL)
 
 def run_migrations_offline():

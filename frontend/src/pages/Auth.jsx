@@ -11,14 +11,16 @@ const isValidEmail = (email) =>
 export const Auth = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { login, register, isAuthenticated } = useAuth();
+  const { login, verify2FA, register, isAuthenticated } = useAuth();
 
-  // Mode can be: 'login', 'register', 'forgot', 'reset'
+  // Mode can be: 'login', 'register', 'forgot', 'reset', '2fa'
   const [authMode, setAuthMode] = useState('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [resetToken, setResetToken] = useState('');
+  const [pending2FAToken, setPending2FAToken] = useState(null);
+  const [totpInput, setTotpInput] = useState('');
   const [verificationLink, setVerificationLink] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
@@ -55,11 +57,32 @@ export const Auth = () => {
       }
       setSubmitting(true);
       try {
-        await login(email, password);
+        const res = await login(email, password);
+        if (res?.requires_2fa) {
+          setPending2FAToken(res.pending_token);
+          setAuthMode('2fa');
+          toast.success('Please enter your 2FA code or backup code.');
+          return;
+        }
         toast.success('Logged in successfully!');
         navigate('/dashboard');
       } catch (err) {
         toast.error(err || 'Authentication failed. Please try again.');
+      } finally {
+        setSubmitting(false);
+      }
+    } else if (authMode === '2fa') {
+      if (!totpInput || !pending2FAToken) {
+        toast.error('Please enter your 2FA code.');
+        return;
+      }
+      setSubmitting(true);
+      try {
+        await verify2FA(pending2FAToken, totpInput.trim());
+        toast.success('2FA verification successful!');
+        navigate('/dashboard');
+      } catch (err) {
+        toast.error(err || 'Invalid 2FA code.');
       } finally {
         setSubmitting(false);
       }
@@ -147,12 +170,14 @@ export const Auth = () => {
         <div className="text-center">
           <h2 className="text-3xl font-extrabold tracking-tight text-dark-50">
             {authMode === 'login' && 'Welcome Back'}
+            {authMode === '2fa' && '2FA Verification'}
             {authMode === 'register' && 'Create Account'}
             {authMode === 'forgot' && 'Reset Password'}
             {authMode === 'reset' && 'Enter New Password'}
           </h2>
           <p className="mt-2 text-xs text-dark-400">
             {authMode === 'login' && 'Enter credentials to access your Career Copilot'}
+            {authMode === '2fa' && 'Enter your 6-digit TOTP code or an 8-character backup code'}
             {authMode === 'register' && 'Sign up to build your local resume database'}
             {authMode === 'forgot' && 'We will generate an access token to update your password'}
             {authMode === 'reset' && 'Please provide your security token and select a new password'}
@@ -161,6 +186,21 @@ export const Auth = () => {
 
         {/* Form */}
         <form className="mt-8 space-y-4" onSubmit={handleSubmit}>
+          {authMode === '2fa' && (
+            <div>
+              <label className="block text-xs font-semibold text-dark-300 mb-1.5">2FA Code / Backup Code</label>
+              <input
+                type="text"
+                required
+                autoFocus
+                value={totpInput}
+                onChange={(e) => setTotpInput(e.target.value)}
+                className="w-full px-4 py-3 bg-dark-950 border border-dark-800 focus:border-indigo-500/40 rounded-xl text-center text-lg font-mono tracking-widest text-dark-100 focus:outline-none transition-all font-bold"
+                placeholder="123456 or ABC12345"
+              />
+            </div>
+          )}
+
           {authMode === 'register' && (
             <div>
               <label className="block text-xs font-semibold text-dark-300 mb-1.5">Full Name</label>
@@ -241,6 +281,7 @@ export const Auth = () => {
             ) : (
               <>
                 {authMode === 'login' && 'Sign In'}
+                {authMode === '2fa' && 'Verify 2FA'}
                 {authMode === 'register' && 'Register'}
                 {authMode === 'forgot' && 'Generate Reset Token'}
                 {authMode === 'reset' && 'Save New Password'}

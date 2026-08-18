@@ -22,33 +22,27 @@ class ChromaDBClient:
                 for col in collections:
                     col.count()
             except Exception as e:
-                err_msg = str(e)
-                if any(phrase in err_msg for phrase in ["mismatched types", "Rust type", "compatible with SQL type", "InternalError"]):
-                    print(f"⚠️ ChromaDB database error detected: {e}")
-                    print(f"Resetting ChromaDB persistent store at: {settings.CHROMA_PATH}")
-                    cls._client = None
-                    if os.path.exists(settings.CHROMA_PATH):
-                        try:
-                            shutil.rmtree(settings.CHROMA_PATH)
-                        except Exception as rm_err:
-                            print(f"Failed to delete ChromaDB path: {rm_err}")
-                            # fallback: try to delete files inside
-                            for root, dirs, files in os.walk(settings.CHROMA_PATH, topdown=False):
-                                for name in files:
-                                    try:
-                                        os.remove(os.path.join(root, name))
-                                    except Exception:
-                                        pass
-                                for name in dirs:
-                                    try:
-                                        os.rmdir(os.path.join(root, name))
-                                    except Exception:
-                                        pass
-                    # Recreate directory and reinitialize
-                    os.makedirs(settings.CHROMA_PATH, exist_ok=True)
-                    cls._client = init_client()
-                else:
-                    raise e
+                print(f"⚠️ ChromaDB database error detected: {e}")
+                print(f"Resetting ChromaDB persistent store at: {settings.CHROMA_PATH}")
+                cls._client = None
+                if os.path.exists(settings.CHROMA_PATH):
+                    try:
+                        shutil.rmtree(settings.CHROMA_PATH)
+                    except Exception as rm_err:
+                        print(f"Failed to delete ChromaDB path: {rm_err}")
+                        for root, dirs, files in os.walk(settings.CHROMA_PATH, topdown=False):
+                            for name in files:
+                                try:
+                                    os.remove(os.path.join(root, name))
+                                except Exception:
+                                    pass
+                            for name in dirs:
+                                try:
+                                    os.rmdir(os.path.join(root, name))
+                                except Exception:
+                                    pass
+                os.makedirs(settings.CHROMA_PATH, exist_ok=True)
+                cls._client = init_client()
         return cls._client
 
     @classmethod

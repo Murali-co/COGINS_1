@@ -43,6 +43,8 @@ export const Navbar = () => {
     { name: 'Applications', path: '/applications' },
     { name: 'Career Copilot', path: '/copilot' },
     { name: 'Interview Coach', path: '/interview' },
+    { name: 'Security', path: '/security' },
+    ...(user?.is_admin ? [{ name: 'Audit Log', path: '/admin/audit-log' }] : []),
   ];
 
   const isActive = (path) => location.pathname === path;

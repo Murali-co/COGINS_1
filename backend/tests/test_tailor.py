@@ -17,7 +17,10 @@ def test_resume_tailoring_flow(client):
         "password": "password123"
     })
     token = login_res.json()["access_token"]
+    csrf_token = login_res.cookies.get("csrf_token")
     headers = {"Authorization": f"Bearer {token}"}
+    if csrf_token:
+        headers["X-CSRF-Token"] = csrf_token
 
     # 2. Test without resume uploaded (Should fail with 400)
     tailor_res = client.post(

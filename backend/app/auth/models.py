@@ -1,4 +1,5 @@
-from datetime import datetime, timezone
+import hashlib
+from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any, List
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import select, update, func, inspect, text
@@ -46,6 +47,19 @@ def ensure_user_admin_column():
                 conn.execute(text("ALTER TABLE users ADD COLUMN email_notifications BOOLEAN DEFAULT TRUE"))
             print("✅ Added 'email_notifications' column to users table")
         
+        # Add two_factor_enabled column if missing
+        if "two_factor_enabled" not in columns:
+            if engine.dialect.name == "sqlite":
+                conn.execute(text("ALTER TABLE users ADD COLUMN two_factor_enabled BOOLEAN NOT NULL DEFAULT 0"))
+            else:
+                conn.execute(text("ALTER TABLE users ADD COLUMN two_factor_enabled BOOLEAN NOT NULL DEFAULT FALSE"))
+            print("✅ Added 'two_factor_enabled' column to users table")
+
+        # Add two_factor_secret column if missing
+        if "two_factor_secret" not in columns:
+            conn.execute(text("ALTER TABLE users ADD COLUMN two_factor_secret VARCHAR"))
+            print("✅ Added 'two_factor_secret' column to users table")
+
         # Add daily_digest column if missing
         if "daily_digest" not in columns:
             if engine.dialect.name == "sqlite":
@@ -85,6 +99,13 @@ def ensure_user_admin_column():
         if "reset_password_token_expiry" not in columns:
             conn.execute(text("ALTER TABLE users ADD COLUMN reset_password_token_expiry TIMESTAMP WITH TIME ZONE NULL"))
             print("✅ Added 'reset_password_token_expiry' column to users table")
+
+        if "auto_approve_external_actions" not in columns:
+            if engine.dialect.name == "sqlite":
+                conn.execute(text("ALTER TABLE users ADD COLUMN auto_approve_external_actions BOOLEAN NOT NULL DEFAULT 0"))
+            else:
+                conn.execute(text("ALTER TABLE users ADD COLUMN auto_approve_external_actions BOOLEAN NOT NULL DEFAULT FALSE"))
+            print("✅ Added 'auto_approve_external_actions' column to users table")
         
         # Ensure user criteria table has job_type support
         if "user_criteria" in inspector.get_table_names():
@@ -192,6 +213,17 @@ class DBManager:
         try:
             user = db.get(User, user_id)
             return model_to_dict(user) if user else None
+        finally:
+            db.close()
+
+    @staticmethod
+    def update_auto_approve_external_actions(user_id: int, auto_approve: bool) -> None:
+        db = SessionLocal()
+        try:
+            user = db.get(User, user_id)
+            if user:
+                user.auto_approve_external_actions = auto_approve
+                db.commit()
         finally:
             db.close()
 
@@ -1036,6 +1068,51 @@ class DBManager:
         finally:
             db.close()
 
+    @staticmethod
+    def get_refresh_token_by_id(session_id: int) -> Optional[Dict[str, Any]]:
+        """Get refresh token record by session ID"""
+        db = SessionLocal()
+        try:
+            rt = db.get(RefreshToken, session_id)
+            return model_to_dict(rt) if rt else None
+        finally:
+            db.close()
+
+    @staticmethod
+    def count_recent_failed_logins(email: str, minutes: int = 15) -> int:
+        """Count login_failed events for target email within the last N minutes"""
+        db = SessionLocal()
+        try:
+            cutoff = datetime.now(timezone.utc) - timedelta(minutes=minutes)
+            count = db.query(AuthAuditLog).filter(
+                AuthAuditLog.event_type == "login_failed",
+                AuthAuditLog.created_at >= cutoff,
+                AuthAuditLog.detail.like(f"%{email}%")
+            ).count()
+            return count
+        finally:
+            db.close()
+
+    @staticmethod
+    def revoke_other_user_sessions(user_id: int, current_token_hash: Optional[str]) -> int:
+        """Revoke all active refresh token sessions for a user EXCEPT the current session"""
+        db = SessionLocal()
+        try:
+            now = datetime.now(timezone.utc)
+            query = db.query(RefreshToken).filter(
+                RefreshToken.user_id == user_id,
+                RefreshToken.revoked_at.is_(None)
+            )
+            if current_token_hash:
+                query = query.filter(RefreshToken.token_hash != current_token_hash)
+            rows = query.all()
+            for r in rows:
+                r.revoked_at = now
+            db.commit()
+            return len(rows)
+        finally:
+            db.close()
+
     # ===== AUDIT LOGGING METHODS =====
     @staticmethod
     def log_auth_event(event_type: str, user_id: Optional[int] = None, ip_address: Optional[str] = None, user_agent: Optional[str] = None, detail: Optional[str] = None):
@@ -1054,6 +1131,103 @@ class DBManager:
         except Exception as e:
             db.rollback()
             print(f"[AuditLog Error] Failed to log auth event '{event_type}': {e}")
+        finally:
+            db.close()
+
+    @staticmethod
+    def get_admin_audit_logs(
+        page: int = 1,
+        per_page: int = 20,
+        event_type: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Fetch paginated auth_audit_log entries with optional filtering"""
+        db = SessionLocal()
+        try:
+            query = db.query(AuthAuditLog)
+            if event_type:
+                query = query.filter(AuthAuditLog.event_type == event_type)
+            if start_date:
+                try:
+                    s_dt = datetime.fromisoformat(start_date.replace(" ", "T"))
+                    if s_dt.tzinfo is None:
+                        s_dt = s_dt.replace(tzinfo=timezone.utc)
+                    query = query.filter(AuthAuditLog.created_at >= s_dt)
+                except Exception:
+                    pass
+            if end_date:
+                try:
+                    e_dt = datetime.fromisoformat(end_date.replace(" ", "T"))
+                    if e_dt.tzinfo is None:
+                        e_dt = e_dt.replace(tzinfo=timezone.utc)
+                    query = query.filter(AuthAuditLog.created_at <= e_dt)
+                except Exception:
+                    pass
+
+            total = query.count()
+            offset = (page - 1) * per_page
+            rows = query.order_by(AuthAuditLog.created_at.desc()).offset(offset).limit(per_page).all()
+            logs = [model_to_dict(r) for r in rows]
+            total_pages = (total + per_page - 1) // per_page if per_page > 0 else 1
+
+            return {
+                "logs": logs,
+                "total": total,
+                "page": page,
+                "per_page": per_page,
+                "total_pages": total_pages
+            }
+        finally:
+            db.close()
+
+    # ===== 2FA METHODS =====
+    @staticmethod
+    def set_user_2fa_secret(user_id: int, secret: Optional[str], enabled: bool = False):
+        """Update user 2FA secret and enabled status"""
+        db = SessionLocal()
+        try:
+            stmt = update(User).where(User.id == user_id).values(
+                two_factor_secret=secret,
+                two_factor_enabled=enabled
+            )
+            db.execute(stmt)
+            db.commit()
+        finally:
+            db.close()
+
+    @staticmethod
+    def save_user_backup_codes(user_id: int, code_hashes: List[str]):
+        """Replace user's 2FA backup code hashes"""
+        from app.db.models import TwoFactorBackupCode
+        db = SessionLocal()
+        try:
+            db.query(TwoFactorBackupCode).filter(TwoFactorBackupCode.user_id == user_id).delete()
+            for ch in code_hashes:
+                bc = TwoFactorBackupCode(user_id=user_id, code_hash=ch)
+                db.add(bc)
+            db.commit()
+        finally:
+            db.close()
+
+    @staticmethod
+    def verify_and_consume_backup_code(user_id: int, code: str) -> bool:
+        """Check if code matches an unused backup code hash for user and mark it used"""
+        from app.db.models import TwoFactorBackupCode
+        db = SessionLocal()
+        try:
+            code_hash = hashlib.sha256(code.strip().encode("utf-8")).hexdigest()
+            now = datetime.now(timezone.utc)
+            bc = db.query(TwoFactorBackupCode).filter(
+                TwoFactorBackupCode.user_id == user_id,
+                TwoFactorBackupCode.code_hash == code_hash,
+                TwoFactorBackupCode.used_at.is_(None)
+            ).first()
+            if bc:
+                bc.used_at = now
+                db.commit()
+                return True
+            return False
         finally:
             db.close()
 

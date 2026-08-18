@@ -3,10 +3,14 @@ import os
 import shutil
 import sys
 from unittest.mock import MagicMock
+from sqlalchemy import text
+
+# Load dotenv if present so DATABASE_URL from .env is set in os.environ if not already present
+from dotenv import load_dotenv
+load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"))
 
 # Set mock environment variables before importing any app components
 os.environ["SECRET_KEY"] = "test-secret-key-test-secret-key-test-secret-key"
-os.environ["DATABASE_URL"] = "sqlite:///./test_data/users.db"
 os.environ["CHROMA_PATH"] = "./test_data/chroma_db"
 os.environ["UPLOAD_DIR"] = "./test_uploads"
 os.environ["TESTING"] = "true"
@@ -70,7 +74,7 @@ from fastapi.testclient import TestClient
 # Clean up test directories on startup
 for path in ["./test_data", "./test_uploads"]:
     if os.path.exists(path):
-        shutil.rmtree(path)
+        shutil.rmtree(path, ignore_errors=True)
 os.makedirs("./test_data", exist_ok=True)
 os.makedirs("./test_uploads", exist_ok=True)
 
@@ -90,19 +94,19 @@ def clean_test_dirs():
     
     # 1. Clear DB tables via SQLAlchemy session
     from app.db.session import SessionLocal
+    from sqlalchemy import text
     db = SessionLocal()
     try:
         for model in [
-            'workflow_tasks', 'workflows', 'notifications', 'resume_versions', 'interview_sessions',
+            'refresh_tokens', 'two_factor_backup_codes', 'auth_audit_log', 'workflow_tasks', 'workflows', 'notifications', 'resume_versions', 'interview_sessions',
             'chat_messages', 'user_criteria', 'applications_history', 'users',
             'feedbacks'
         ]:
             try:
-                db.execute(f"TRUNCATE TABLE {model} RESTART IDENTITY CASCADE")
+                db.execute(text(f"TRUNCATE TABLE {model} RESTART IDENTITY CASCADE"))
             except Exception:
-                # Fallback for SQLite which doesn't support TRUNCATE
                 try:
-                    db.execute(f"DELETE FROM {model}")
+                    db.execute(text(f"DELETE FROM {model}"))
                 except Exception:
                     pass
         db.commit()
@@ -123,4 +127,7 @@ def clean_test_dirs():
     ChromaDBClient.seed_skills_if_empty()
 
     yield
+
+    from app.db.session import engine
+    engine.dispose()
 

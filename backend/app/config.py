@@ -1,6 +1,6 @@
 import os
 from pathlib import Path
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
@@ -15,6 +15,18 @@ class Settings(BaseSettings):
             if normalized in {"0", "false", "no", "n", "off", "f", "release", "prod", "production"}:
                 return False
         return value
+
+    @model_validator(mode="after")
+    def validate_production_security(self):
+        env = self.ENVIRONMENT.lower()
+        if env in {"production", "prod"}:
+            key = self.SECRET_KEY
+            if len(key) < 32:
+                raise ValueError("SECRET_KEY must be at least 32 characters long in production.")
+            forbidden_substrings = ["test", "secret", "changeme", "dev", "example", "default"]
+            if any(sub in key.lower() for sub in forbidden_substrings):
+                raise ValueError("SECRET_KEY contains insecure placeholder substring in production environment.")
+        return self
     
     # JWT authentication
     # Must be set in backend/.env.

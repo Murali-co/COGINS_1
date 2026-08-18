@@ -26,6 +26,11 @@ export const AuthProvider = ({ children }) => {
     setLoading(true);
     try {
       const response = await apiClient.post('/auth/login', { email, password });
+      if (response.data?.requires_2fa) {
+        setLoading(false);
+        return { requires_2fa: true, pending_token: response.data.pending_token };
+      }
+
       const { access_token } = response.data;
       if (access_token) {
         localStorage.setItem('token', access_token);
@@ -39,6 +44,27 @@ export const AuthProvider = ({ children }) => {
     } catch (error) {
       setLoading(false);
       throw error.response?.data?.detail || "Invalid credentials. Please try again.";
+    }
+  };
+
+  const verify2FA = async (pendingToken, code) => {
+    setLoading(true);
+    try {
+      const response = await apiClient.post('/auth/2fa/verify', {
+        pending_token: pendingToken,
+        code,
+      });
+      const { access_token } = response.data;
+      if (access_token) {
+        localStorage.setItem('token', access_token);
+      }
+      const userRes = await apiClient.get('/auth/me');
+      setUser(userRes.data);
+      setLoading(false);
+      return userRes.data;
+    } catch (error) {
+      setLoading(false);
+      throw error.response?.data?.detail || "2FA verification failed.";
     }
   };
 
@@ -72,6 +98,7 @@ export const AuthProvider = ({ children }) => {
     user,
     loading,
     login,
+    verify2FA,
     register,
     logout,
     isAuthenticated: !!user,
