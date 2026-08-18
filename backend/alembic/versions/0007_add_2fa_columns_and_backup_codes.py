@@ -1,7 +1,7 @@
 """Add 2FA columns to users and two_factor_backup_codes table
 
 Revision ID: 0007_2fa_and_backup_codes
-Revises: 0006_refresh_tokens_audit_log
+Revises: 0006_refresh_tokens_and_audit_log
 Create Date: 2026-08-17 18:00:00.000000
 
 """
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = '0007_2fa_and_backup_codes'
-down_revision = '0006_refresh_tokens_audit_log'
+down_revision = '0006_refresh_tokens_and_audit_log'
 branch_labels = None
 depends_on = None
 
